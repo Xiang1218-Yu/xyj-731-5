@@ -1,6 +1,7 @@
 import { EventDriver } from '@designable/shared'
 import { Engine } from '../models/Engine'
 import { DragStartEvent, DragMoveEvent, DragStopEvent } from '../events'
+import { DragBackendType } from '../drag/types'
 
 const GlobalState = {
   dragging: false,
@@ -15,6 +16,10 @@ export class DragDropDriver extends EventDriver<Engine> {
   startEvent: MouseEvent
 
   onMouseDown = (e: MouseEvent) => {
+    // Pointer 后端激活时，手势采集由 PointerDragBackend 接管，本驱动让位以避免重复拖拽
+    if (this.engine.dragEngine?.backend?.type === DragBackendType.Pointer) {
+      return
+    }
     if (e.button !== 0 || e.ctrlKey || e.metaKey) {
       return
     }
