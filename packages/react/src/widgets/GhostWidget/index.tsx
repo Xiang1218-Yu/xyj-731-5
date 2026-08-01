@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react'
-import { useCursor, usePrefix, useDesigner } from '../../hooks'
+import { useCursor, usePrefix, useDesigner, useDragSession } from '../../hooks'
 import { CursorStatus } from '@designable/core'
 import { autorun } from '@formily/reactive'
 import { observer } from '@formily/reactive-react'
@@ -11,7 +11,10 @@ export const GhostWidget = observer(() => {
   const cursor = useCursor()
   const ref = useRef<HTMLDivElement>()
   const prefix = usePrefix('ghost')
-  const movingNodes = designer.findMovingNodes()
+  // 拖拽节点取自事件总线同步的会话快照（跨画布同帧更新），
+  // 替代原先渲染期轮询各 workspace moveHelper 的方式
+  const dragSession = useDragSession()
+  const movingNodes = dragSession.dragNodes
   const firstNode = movingNodes[0]
   useEffect(
     () =>

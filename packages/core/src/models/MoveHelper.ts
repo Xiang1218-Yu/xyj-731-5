@@ -16,7 +16,7 @@ import { CursorDragType } from './Cursor'
 export enum ClosestPosition {
   Before = 'BEFORE',
   ForbidBefore = 'FORBID_BEFORE',
-  After = 'After',
+  After = 'AFTER',
   ForbidAfter = 'FORBID_AFTER',
   Upper = 'UPPER',
   ForbidUpper = 'FORBID_UPPER',

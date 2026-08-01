@@ -35,6 +35,8 @@ export class LegacyDragBackend implements IDragBackend {
   attach(): void {
     if (this.driver) return
     const driver = new DragDropDriver(this.engine)
+    // 标记归属：告知驱动本实例由后端管理，不触发「外部注册让位」逻辑
+    driver.managedByDragEngine = true
     // 与引擎 attachEvents 的挂载语义保持一致：监听顶层 document
     driver.contentWindow = globalThisPolyfill
     driver.container = globalThisPolyfill.document

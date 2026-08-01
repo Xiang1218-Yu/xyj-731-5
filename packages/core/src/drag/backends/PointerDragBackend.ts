@@ -2,7 +2,13 @@ import { globalThisPolyfill } from '@designable/shared'
 import { Engine } from '../../models/Engine'
 import { DragMoveEvent, DragStartEvent, DragStopEvent } from '../../events'
 import { isElementTarget } from '../guards'
-import { DragBackendType, IDragBackend } from '../types'
+import {
+  DragBackendType,
+  DragGestureHandler,
+  DragGesturePhase,
+  IDragBackend,
+  IDragGesture,
+} from '../types'
 
 /**
  * Pointer 拖拽后端（策略模式的可替换实现）
@@ -89,7 +95,9 @@ export class PointerDragBackend implements IDragBackend {
     const doc = globalThisPolyfill.document
     doc.addEventListener('pointermove', this.onPointerMove, true)
     doc.addEventListener('contextmenu', this.onContextMenuWhileDragging, true)
-    this.dispatchGesture(DragStartEvent, this.startEvent)
+    this.dispatchGesture(
+      this.normalizeGesture(DragGesturePhase.Start, this.startEvent)
+    )
     // 记录初始坐标，避免 start 后立即重复派发同一坐标的 move
     this.lastMoveEvent = event
   }
@@ -102,13 +110,13 @@ export class PointerDragBackend implements IDragBackend {
     ) {
       return
     }
-    this.dispatchGesture(DragMoveEvent, event)
+    this.dispatchGesture(this.normalizeGesture(DragGesturePhase.Move, event))
     this.lastMoveEvent = event
   }
 
   private onPointerUp = (event: PointerEvent) => {
     if (this.dragging) {
-      this.dispatchGesture(DragStopEvent, event)
+      this.dispatchGesture(this.normalizeGesture(DragGesturePhase.End, event))
     }
     this.dragging = false
     this.startEvent = null
@@ -134,25 +142,43 @@ export class PointerDragBackend implements IDragBackend {
   }
 
   /**
-   * 将 pointer 手势归一化为引擎标准拖拽事件
+   * 将原始 pointer 事件归一化为标准拖拽手势（IDragGesture）
+   * 采集与派发分离：手势结构与具体事件源解耦，是策略后端的统一输出格式
+   */
+  private normalizeGesture(
+    phase: DragGesturePhase,
+    event: PointerEvent
+  ): IDragGesture {
+    return {
+      phase,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pageX: event.pageX,
+      pageY: event.pageY,
+      target: event.target,
+      view: event.view,
+    }
+  }
+
+  /**
+   * 将归一化手势转换为引擎标准拖拽事件并派发
    * 事件数据结构与 DragDropDriver 保持一致，确保所有下游订阅方兼容
    */
-  private dispatchGesture(
-    EventClass:
-      | typeof DragStartEvent
-      | typeof DragMoveEvent
-      | typeof DragStopEvent,
-    event: PointerEvent
-  ) {
-    this.engine.dispatch(
-      new EventClass({
-        clientX: event.clientX,
-        clientY: event.clientY,
-        pageX: event.pageX,
-        pageY: event.pageY,
-        target: event.target,
-        view: event.view,
-      })
-    )
+  private dispatchGesture: DragGestureHandler = (gesture) => {
+    const eventData = {
+      clientX: gesture.clientX,
+      clientY: gesture.clientY,
+      pageX: gesture.pageX,
+      pageY: gesture.pageY,
+      target: gesture.target,
+      view: gesture.view,
+    }
+    if (gesture.phase === DragGesturePhase.Start) {
+      this.engine.dispatch(new DragStartEvent(eventData))
+    } else if (gesture.phase === DragGesturePhase.Move) {
+      this.engine.dispatch(new DragMoveEvent(eventData))
+    } else {
+      this.engine.dispatch(new DragStopEvent(eventData))
+    }
   }
 }

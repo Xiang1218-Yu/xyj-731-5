@@ -66,6 +66,7 @@ export class DragEngine {
     this.previewEnabled =
       props.previewEnabled ?? props.backend === DragBackendType.Pointer
     this.backend = this.createBackend(props.backend ?? DragBackendType.Html5)
+    this.bindPreviewToBus()
   }
 
   /**
@@ -73,6 +74,26 @@ export class DragEngine {
    */
   mount() {
     this.backend.attach()
+  }
+
+  /**
+   * 将预览管线挂接到事件总线
+   * 预览渲染与拖拽业务处理彻底解耦：业务方法只负责发布状态快照，
+   * 预览层作为总线订阅方被动响应，与其它外部订阅方（如 React 组件）
+   * 走完全相同的同步通道
+   */
+  private bindPreviewToBus() {
+    this.bus.subscribe('drag:sessionStart', (state) => {
+      this.renderPreview(state.dragNodes)
+    })
+    this.bus.subscribe('drag:sessionMove', (state) => {
+      if (state.point) {
+        this.movePreview(state.point.x, state.point.y)
+      }
+    })
+    this.bus.subscribe('drag:sessionEnd', () => {
+      this.preview.clear()
+    })
   }
 
   /**
@@ -181,8 +202,7 @@ export class DragEngine {
       }
     })
     engine.cursor.setStyle('move')
-    // 渲染虚拟DOM预览并广播会话开始
-    this.renderPreview()
+    // 广播会话开始（预览层与外部订阅方均通过事件总线被动响应）
     this.publishSession('drag:sessionStart')
   }
 
@@ -216,8 +236,7 @@ export class DragEngine {
         touchNode,
       })
     })
-    // 移动预览浮层并同步广播最新状态快照（跨画布同步无延迟的关键）
-    this.movePreview(event.data.topClientX, event.data.topClientY)
+    // 同步广播最新状态快照（跨画布同步无延迟的关键，预览层随总线移动）
     this.publishSession('drag:sessionMove')
   }
 
@@ -327,8 +346,7 @@ export class DragEngine {
       moveHelper.dragEnd()
     })
     engine.cursor.setStyle('')
-    // 清理预览并广播会话结束
-    this.preview.clear()
+    // 广播会话结束（预览层随总线清理）
     this.publishSession('drag:sessionEnd')
   }
 
@@ -346,11 +364,11 @@ export class DragEngine {
    * 渲染虚拟DOM拖拽预览
    * 预览内容仅由节点标题等元数据生成描述，不渲染真实业务组件
    */
-  private renderPreview() {
+  private renderPreview(dragNodes: TreeNode[]) {
     if (!this.previewEnabled) return
-    const dragNodes = this.engine.findMovingNodes()
-    if (!dragNodes.length) return
-    this.preview.render(this.buildPreviewDescriptor(dragNodes))
+    const descriptor = this.buildPreviewDescriptor(dragNodes)
+    if (!descriptor) return
+    this.preview.render(descriptor)
   }
 
   /**
@@ -365,14 +383,21 @@ export class DragEngine {
    * 构建预览的虚拟DOM描述
    * 默认实现：首个拖拽节点标题 + 多选省略标记，样式内联以保证跨画布一致
    * 如需自定义预览，可在 drag:sessionStart 订阅中调用 preview.render 覆盖
+   * @returns 拖拽节点为空时返回 null，调用方据此跳过渲染
    */
-  private buildPreviewDescriptor(dragNodes: TreeNode[]): IDragPreviewNode {
+  private buildPreviewDescriptor(
+    dragNodes: TreeNode[]
+  ): IDragPreviewNode | null {
+    // 防御空数组：无拖拽节点时不存在合法的预览内容
+    if (!dragNodes.length) return null
     const firstNode = dragNodes[0]
+    // 资源节点取首个子节点作为展示节点；无子节点时兜底回资源节点自身
     const displayNode =
       firstNode.componentName === '$$ResourceNode$$'
-        ? firstNode.children[0]
+        ? firstNode.children[0] ?? firstNode
         : firstNode
-    const title = displayNode?.getMessage('title') || displayNode?.componentName
+    const title =
+      displayNode.getMessage('title') || displayNode.componentName || 'Component'
     const text = dragNodes.length > 1 ? `${title}...` : `${title}`
     return {
       tagName: 'div',
