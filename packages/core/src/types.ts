@@ -1,5 +1,6 @@
 import { IEventProps, Event } from '@designable/shared'
 import { ISchema } from '@formily/json-schema'
+import { IDragEngineProps } from './drag/types'
 import {
   Engine,
   ITreeNode,
@@ -27,6 +28,7 @@ export type IEngineProps<T = Event> = IEventProps<T> & {
   defaultComponentTree?: ITreeNode //默认组件树
   defaultScreenType?: ScreenType
   rootComponentName?: string
+  dragEngine?: IDragEngineProps //拖拽引擎配置（后端策略/虚拟DOM预览开关）
 }
 
 export type IEngineContext = {

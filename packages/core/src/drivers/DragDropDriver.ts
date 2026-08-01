@@ -14,7 +14,20 @@ export class DragDropDriver extends EventDriver<Engine> {
 
   startEvent: MouseEvent
 
+  /**
+   * 归属标记：标识本实例是否由 DragEngine 的拖拽后端持有并管理
+   * 仅 LegacyDragBackend 在创建实例时置为 true，
+   * 用于区分「后端自包含采集」与「外部手动注册」两种使用方式
+   */
+  managedByDragEngine = false
+
   onMouseDown = (e: MouseEvent) => {
+    // 拖拽手势采集已由 DragEngine 的拖拽后端自包含管理：
+    // 本驱动若被外部手动注册到引擎驱动列表中（非后端持有），
+    // 则自动让位以避免手势被重复采集；后端持有的实例不受影响
+    if (this.engine.dragEngine && !this.managedByDragEngine) {
+      return
+    }
     if (e.button !== 0 || e.ctrlKey || e.metaKey) {
       return
     }

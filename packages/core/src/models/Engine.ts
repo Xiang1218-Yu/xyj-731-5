@@ -4,6 +4,7 @@ import { Workbench } from './Workbench'
 import { Cursor } from './Cursor'
 import { Keyboard } from './Keyboard'
 import { Screen, ScreenType } from './Screen'
+import { DragEngine } from '../drag/DragEngine'
 import { Event, uid, globalThisPolyfill } from '@designable/shared'
 
 /**
@@ -23,6 +24,12 @@ export class Engine extends Event {
 
   screen: Screen
 
+  /**
+   * 拖拽引擎：拖拽逻辑的统一入口（策略后端 + 事件总线 + 虚拟DOM预览）
+   * 重构后拖拽相关能力通过该模块对外提供，兼容层见 useDragDropEffect
+   */
+  dragEngine: DragEngine
+
   constructor(props: IEngineProps<Engine>) {
     super(props)
     this.props = {
@@ -38,6 +45,7 @@ export class Engine extends Event {
     this.screen = new Screen(this)
     this.cursor = new Cursor(this)
     this.keyboard = new Keyboard(this)
+    this.dragEngine = new DragEngine(this, this.props.dragEngine)
   }
 
   setCurrentTree(tree?: ITreeNode) {
@@ -81,10 +89,12 @@ export class Engine extends Event {
 
   mount() {
     this.attachEvents(globalThisPolyfill)
+    this.dragEngine.mount()
   }
 
   unmount() {
     this.detachEvents()
+    this.dragEngine.unmount()
   }
 
   static defaultProps: IEngineProps<Engine> = {
