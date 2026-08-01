@@ -4,6 +4,8 @@ import { Workbench } from './Workbench'
 import { Cursor } from './Cursor'
 import { Keyboard } from './Keyboard'
 import { Screen, ScreenType } from './Screen'
+import { DragEngine } from '../drag-engine'
+import { createDesignerDragEngine } from './DragEngineAdapter'
 import { Event, uid, globalThisPolyfill } from '@designable/shared'
 
 /**
@@ -23,6 +25,14 @@ export class Engine extends Event {
 
   screen: Screen
 
+  /**
+   * 重构后的独立拖拽引擎。
+   * 默认仅实例化、不主动挂载后端，以免与既有 DragDropDriver 双重派发；
+   * 需要启用新拖拽后端时，调用 dragEngine.useBackend(new PointerDragBackend())。
+   * 该字段同时对外暴露事件总线（dragEngine.bus）与虚拟预览模型（dragEngine.preview）。
+   */
+  dragEngine: DragEngine
+
   constructor(props: IEngineProps<Engine>) {
     super(props)
     this.props = {
@@ -38,6 +48,7 @@ export class Engine extends Event {
     this.screen = new Screen(this)
     this.cursor = new Cursor(this)
     this.keyboard = new Keyboard(this)
+    this.dragEngine = createDesignerDragEngine(this)
   }
 
   setCurrentTree(tree?: ITreeNode) {
@@ -84,6 +95,7 @@ export class Engine extends Event {
   }
 
   unmount() {
+    this.dragEngine?.unmount()
     this.detachEvents()
   }
 
