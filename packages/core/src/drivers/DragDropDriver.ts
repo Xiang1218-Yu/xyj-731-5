@@ -1,7 +1,6 @@
 import { EventDriver } from '@designable/shared'
 import { Engine } from '../models/Engine'
 import { DragStartEvent, DragMoveEvent, DragStopEvent } from '../events'
-import { DragBackendType } from '../drag/types'
 
 const GlobalState = {
   dragging: false,
@@ -16,8 +15,10 @@ export class DragDropDriver extends EventDriver<Engine> {
   startEvent: MouseEvent
 
   onMouseDown = (e: MouseEvent) => {
-    // Pointer 后端激活时，手势采集由 PointerDragBackend 接管，本驱动让位以避免重复拖拽
-    if (this.engine.dragEngine?.backend?.type === DragBackendType.Pointer) {
+    // 拖拽手势采集已由 DragEngine 的拖拽后端自包含管理：
+    // 本驱动仅作为兼容产物保留（供 DragEngine 的 HTML5 后端内部复用），
+    // 若被外部手动注册到引擎驱动列表中，则自动让位以避免手势重复采集
+    if (this.engine.dragEngine) {
       return
     }
     if (e.button !== 0 || e.ctrlKey || e.metaKey) {

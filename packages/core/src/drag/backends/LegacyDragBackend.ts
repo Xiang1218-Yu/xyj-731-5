@@ -1,24 +1,50 @@
+import { globalThisPolyfill } from '@designable/shared'
+import { Engine } from '../../models/Engine'
+import { DragDropDriver } from '../../drivers/DragDropDriver'
 import { DragBackendType, IDragBackend } from '../types'
 
 /**
- * HTML5 拖拽后端（默认策略）
+ * HTML5 拖拽后端（默认策略，自包含实现）
  *
- * 职责单一：声明「手势采集复用既有 DragDropDriver（原生 HTML5 DnD +
- * 鼠标距离阈值）」这一策略，自身不再绑定任何 DOM 监听。
+ * 职责单一：基于原生 HTML5 DnD + 鼠标距离阈值完成拖拽手势采集，
+ * 并将手势归一化为 DragStartEvent / DragMoveEvent / DragStopEvent。
+ *
+ * 自包含说明：
+ * 手势采集能力由本后端内部持有的 DragDropDriver 实例提供，
+ * 驱动实例的创建、挂载、销毁全部由本后端管理，不再依赖
+ * DEFAULT_DRIVERS 中的全局驱动注册——即使外部完全移除
+ * DragDropDriver 的注册，本后端依然可独立工作。
  *
  * 向后兼容说明：
- * 该后端下，手势事件仍由 DEFAULT_DRIVERS 中的 DragDropDriver 派发为
- * DragStartEvent / DragMoveEvent / DragStopEvent，并由 useDragDropEffect
- * 委托给 DragEngine 处理，行为与重构前完全一致。
+ * 内部复用 DragDropDriver 的成熟实现，手势采集行为（阈值、
+ * 事件结构、派发时机）与历史版本完全一致。
  */
 export class LegacyDragBackend implements IDragBackend {
   readonly type = DragBackendType.Html5
 
+  /** 引擎引用，用于初始化内部驱动 */
+  private engine: Engine
+
+  /** 内部持有的手势采集驱动实例（本后端自包含的关键） */
+  private driver: DragDropDriver | null = null
+
+  constructor(engine: Engine) {
+    this.engine = engine
+  }
+
   attach(): void {
-    // 手势采集由既有 DragDropDriver 完成，无需额外监听
+    if (this.driver) return
+    const driver = new DragDropDriver(this.engine)
+    // 与引擎 attachEvents 的挂载语义保持一致：监听顶层 document
+    driver.contentWindow = globalThisPolyfill
+    driver.container = globalThisPolyfill.document
+    driver.attach()
+    this.driver = driver
   }
 
   detach(): void {
-    // 无资源需要清理
+    if (!this.driver) return
+    this.driver.detach()
+    this.driver = null
   }
 }

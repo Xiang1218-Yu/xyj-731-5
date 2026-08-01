@@ -52,11 +52,21 @@ export class DragEventBus {
 
   /**
    * 同步发布事件
-   * 注意：发布是同步的，保证跨画布订阅方在同一帧内感知状态变化
+   * 注意：
+   * 1. 发布是同步的，保证跨画布订阅方在同一帧内感知状态变化
+   * 2. 单个 handler 抛出异常时会被隔离（记录日志后继续执行），
+   *    不会中断同事件后续 handler，也不会影响拖拽主流程
    */
   publish<T extends DragEventType>(type: T, payload: IDragEventMap[T]): void {
     this.handlers.get(type)?.forEach((handler) => {
-      handler(payload)
+      try {
+        handler(payload)
+      } catch (error) {
+        console.error(
+          `[DragEventBus] handler of "${type}" threw an error:`,
+          error
+        )
+      }
     })
   }
 

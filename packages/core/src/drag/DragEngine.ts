@@ -6,6 +6,7 @@ import { ClosestPosition } from '../models/MoveHelper'
 import { DragMoveEvent, DragStartEvent, ViewportScrollEvent } from '../events'
 import { DragEventBus } from './DragEventBus'
 import { DragPreviewRenderer } from './DragPreviewRenderer'
+import { isElementTarget } from './guards'
 import { LegacyDragBackend } from './backends/LegacyDragBackend'
 import { PointerDragBackend } from './backends/PointerDragBackend'
 import {
@@ -137,19 +138,20 @@ export class DragEngine {
   handleDragStart(event: DragStartEvent) {
     const engine = this.engine
     if (engine.cursor.type !== CursorType.Normal) return
-    const target = event.data.target as HTMLElement
-    const el = target?.closest(`
+    // 通过类型守卫收窄事件目标：非元素节点（如 Window/Document）安全短路，
+    // 避免强制类型转换掩盖 DOM 结构异常导致的运行时错误
+    const target = event.data.target
+    if (!isElementTarget(target)) return
+    const el = target.closest(`
        *[${engine.props.nodeIdAttrName}],
        *[${engine.props.sourceIdAttrName}],
        *[${engine.props.outlineNodeIdAttrName}]
       `)
-    const handler = target?.closest(
-      `*[${engine.props.nodeDragHandlerAttrName}]`
-    )
+    const handler = target.closest(`*[${engine.props.nodeDragHandlerAttrName}]`)
     const helper = handler?.closest(
       `*[${engine.props.nodeSelectionIdAttrName}]`
     )
-    if (!el?.getAttribute && !handler) return
+    if (!el && !handler) return
     const sourceId = el?.getAttribute(engine.props.sourceIdAttrName)
     const outlineId = el?.getAttribute(engine.props.outlineNodeIdAttrName)
     const handlerId = helper?.getAttribute(engine.props.nodeSelectionIdAttrName)
@@ -191,11 +193,14 @@ export class DragEngine {
     const engine = this.engine
     if (engine.cursor.type !== CursorType.Normal) return
     if (engine.cursor.dragType !== CursorDragType.Move) return
-    const target = event.data.target as HTMLElement
-    const el = target?.closest(`
+    const target = event.data.target
+    // 非元素目标视为未命中任何节点（el 为 null），不中断拖拽流程
+    const el = isElementTarget(target)
+      ? target.closest(`
       *[${engine.props.nodeIdAttrName}],
       *[${engine.props.outlineNodeIdAttrName}]
     `)
+      : null
     const point = new Point(event.data.topClientX, event.data.topClientY)
     const nodeId = el?.getAttribute(engine.props.nodeIdAttrName)
     const outlineId = el?.getAttribute(engine.props.outlineNodeIdAttrName)
@@ -334,7 +339,7 @@ export class DragEngine {
     if (type === DragBackendType.Pointer) {
       return new PointerDragBackend(this.engine)
     }
-    return new LegacyDragBackend()
+    return new LegacyDragBackend(this.engine)
   }
 
   /**

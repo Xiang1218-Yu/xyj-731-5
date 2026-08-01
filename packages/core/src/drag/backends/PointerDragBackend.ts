@@ -1,6 +1,7 @@
 import { globalThisPolyfill } from '@designable/shared'
 import { Engine } from '../../models/Engine'
 import { DragMoveEvent, DragStartEvent, DragStopEvent } from '../../events'
+import { isElementTarget } from '../guards'
 import { DragBackendType, IDragBackend } from '../types'
 
 /**
@@ -56,9 +57,11 @@ export class PointerDragBackend implements IDragBackend {
   private onPointerDown = (event: PointerEvent) => {
     // 仅响应主键，且忽略 ctrl/meta 组合键（与历史行为一致）
     if (event.button !== 0 || event.ctrlKey || event.metaKey) return
-    const target = event.target as HTMLElement | null
-    if (target?.isContentEditable || target?.contentEditable === 'true') return
-    if (target?.closest?.('.monaco-editor')) return
+    // 类型守卫收窄：非元素目标（如 Window/Document）直接忽略
+    const target = event.target
+    if (!isElementTarget(target)) return
+    if (target.isContentEditable || target.contentEditable === 'true') return
+    if (target.closest('.monaco-editor')) return
     this.startEvent = event
     this.dragging = false
     const doc = globalThisPolyfill.document

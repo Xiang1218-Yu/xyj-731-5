@@ -1,5 +1,4 @@
 import {
-  DragDropDriver,
   MouseClickDriver,
   MouseMoveDriver,
   ViewportResizeDriver,
@@ -50,7 +49,9 @@ export const DEFAULT_EFFECTS = [
 
 export const DEFAULT_DRIVERS = [
   MouseMoveDriver,
-  DragDropDriver,
+  // DragDropDriver 已从默认驱动中移除：拖拽手势采集改由 DragEngine 的
+  // 拖拽后端（drag/backends）自包含管理，DragDropDriver 类仍保留导出
+  // 以兼容外部直接引用，其内部会在 DragEngine 存在时自动让位
   MouseClickDriver,
   ViewportResizeDriver,
   ViewportScrollDriver,
