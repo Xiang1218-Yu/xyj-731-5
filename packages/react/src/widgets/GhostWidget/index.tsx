@@ -45,3 +45,5 @@ export const GhostWidget = observer(() => {
 })
 
 GhostWidget.displayName = 'GhostWidget'
+
+export * from './VirtualDragPreviewWidget'
