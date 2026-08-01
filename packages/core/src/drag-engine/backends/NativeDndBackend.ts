@@ -36,6 +36,7 @@ export class NativeDndBackend extends AbstractDragBackend {
    */
   private transparentImage: HTMLImageElement | null = null
 
+  /** 绑定原生 DnD 事件（dragstart/dragover/drop/dragend）到容器 */
   attach(container: EventTarget, host: IDragBackendHost): void {
     this.host = host
     container.addEventListener('dragstart', this.onDragStart as EventListener)
@@ -44,6 +45,7 @@ export class NativeDndBackend extends AbstractDragBackend {
     container.addEventListener('dragend', this.onDragEnd as EventListener)
   }
 
+  /** 解绑全部原生 DnD 事件并复位内部状态 */
   detach(container: EventTarget): void {
     container.removeEventListener(
       'dragstart',

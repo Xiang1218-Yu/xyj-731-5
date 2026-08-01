@@ -13,8 +13,12 @@ import { Engine } from '../Engine'
  * ============================================================================
  */
 export class PreviewNodeFactory {
+  /** 设计器引擎，用于按拖拽源 id 查询真实节点以取标题 */
   private readonly engine: Engine
 
+  /**
+   * @param engine 提供节点查询能力的设计器引擎实例
+   */
   constructor(engine: Engine) {
     this.engine = engine
   }

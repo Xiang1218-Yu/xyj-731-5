@@ -72,6 +72,9 @@ export class DragEngine implements IDragBackendHost {
   /** 当前拖拽源缓存，供 move/drop 复用 */
   private activeSources: IDragSource[] = []
 
+  /**
+   * @param adapter 宿主适配器，提供容器、坐标换算、源解析、预览生成与旧事件桥接
+   */
   constructor(adapter: IDragEngineAdapter) {
     this.adapter = adapter
   }
@@ -122,10 +125,12 @@ export class DragEngine implements IDragBackendHost {
 
   /* --------------------------- IDragBackendHost --------------------------- */
 
+  /** 委派宿主适配器解析拖拽源（IDragBackendHost 实现） */
   resolveSources(target: EventTarget | null): IDragSource[] {
     return this.adapter.resolveSources(target)
   }
 
+  /** 委派宿主适配器换算顶层统一坐标（IDragBackendHost 实现） */
   normalizeCoordinate(
     view: Window | null,
     raw: IRawCoordinate
@@ -133,6 +138,10 @@ export class DragEngine implements IDragBackendHost {
     return this.adapter.normalizeCoordinate(view, raw)
   }
 
+  /**
+   * 后端上报“拖拽开始”：缓存拖拽源、进入 Start 阶段、生成虚拟预览，
+   * 广播 drag:start 并桥接旧事件。无有效源则忽略。
+   */
   dispatchStart(signal: IDragSignal): void {
     // 无有效拖拽源则忽略，避免空拖拽污染状态机
     if (!signal.sources.length) return
@@ -147,6 +156,10 @@ export class DragEngine implements IDragBackendHost {
     this.adapter.bridgeStart?.(signal)
   }
 
+  /**
+   * 后端上报“拖拽移动”：进入 Move 阶段、更新预览坐标，广播 drag:move 并桥接旧事件。
+   * 移动信号中若无源则复用 start 缓存的源，保证跨画布移动时来源一致。
+   */
   dispatchMove(signal: IDragSignal): void {
     if (!this.dragging) return
     // move 阶段复用 start 缓存的拖拽源，保证跨画布移动时来源一致
@@ -160,6 +173,9 @@ export class DragEngine implements IDragBackendHost {
     this.adapter.bridgeMove?.(enriched)
   }
 
+  /**
+   * 后端上报“拖拽落点”：进入 Drop 阶段，广播 drag:drop、桥接旧事件后收尾复位。
+   */
   dispatchDrop(signal: IDragSignal): void {
     if (!this.dragging) return
     const enriched: IDragSignal = {
@@ -173,6 +189,9 @@ export class DragEngine implements IDragBackendHost {
     this.finish()
   }
 
+  /**
+   * 后端上报“拖拽取消”：进入 Cancel 阶段，广播 drag:cancel、桥接旧事件后收尾复位。
+   */
   dispatchCancel(signal: IDragSignal): void {
     if (!this.dragging) return
     const enriched: IDragSignal = {

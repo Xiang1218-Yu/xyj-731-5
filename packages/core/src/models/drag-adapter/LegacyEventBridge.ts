@@ -16,8 +16,12 @@ import { Engine } from '../Engine'
  * ============================================================================
  */
 export class LegacyEventBridge {
+  /** 设计器引擎，用于派发既有拖拽事件 */
   private readonly engine: Engine
 
+  /**
+   * @param engine 用于派发旧事件的设计器引擎实例
+   */
   constructor(engine: Engine) {
     this.engine = engine
   }
@@ -34,20 +38,23 @@ export class LegacyEventBridge {
     }
   }
 
+  /** 派发旧的“拖拽开始”事件 DragStartEvent */
   start(signal: IDragSignal): void {
     this.engine.dispatch(new DragStartEvent(this.toLegacyEventData(signal)))
   }
 
+  /** 派发旧的“拖拽移动”事件 DragMoveEvent */
   move(signal: IDragSignal): void {
     this.engine.dispatch(new DragMoveEvent(this.toLegacyEventData(signal)))
   }
 
+  /** 派发旧的“拖拽落点”事件 DragStopEvent */
   drop(signal: IDragSignal): void {
     this.engine.dispatch(new DragStopEvent(this.toLegacyEventData(signal)))
   }
 
+  /** 派发旧的“拖拽取消”事件；旧体系无独立取消事件，故同样以 DragStop 收尾 */
   cancel(signal: IDragSignal): void {
-    // 旧体系没有独立的“取消”事件，取消同样以 DragStop 收尾
     this.engine.dispatch(new DragStopEvent(this.toLegacyEventData(signal)))
   }
 }

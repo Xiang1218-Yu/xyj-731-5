@@ -35,6 +35,7 @@ export class PointerDragBackend extends AbstractDragBackend {
   /** 已捕获指针的元素，detach/停止时释放 */
   private captureElement: Element | null = null
 
+  /** 绑定 pointerdown 到容器，开始采集指针输入 */
   attach(container: EventTarget, host: IDragBackendHost): void {
     this.host = host
     container.addEventListener(
@@ -44,6 +45,7 @@ export class PointerDragBackend extends AbstractDragBackend {
     )
   }
 
+  /** 解绑 pointerdown 与移动监听、释放指针捕获并复位状态 */
   detach(container: EventTarget): void {
     container.removeEventListener(
       'pointerdown',

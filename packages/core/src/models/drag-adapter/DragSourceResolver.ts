@@ -13,8 +13,12 @@ import { Engine } from '../Engine'
  * ============================================================================
  */
 export class DragSourceResolver {
+  /** 设计器引擎，提供 data-designer-* 属性名与节点查询 */
   private readonly engine: Engine
 
+  /**
+   * @param engine 提供 DOM 属性约定的设计器引擎实例
+   */
   constructor(engine: Engine) {
     this.engine = engine
   }

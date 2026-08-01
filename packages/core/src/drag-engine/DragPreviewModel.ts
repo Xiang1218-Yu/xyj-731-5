@@ -40,6 +40,7 @@ export class DragPreviewModel {
     this.makeObservable()
   }
 
+  /** 将预览状态注册为 @formily/reactive 可观察，使渲染层能自动响应 */
   private makeObservable(): void {
     define(this, {
       visible: observable.ref,

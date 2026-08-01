@@ -51,13 +51,13 @@ export default {
     extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
     alias: getAlias(),
   },
-  externals: {
-    '@formily/reactive': 'Formily.Reactive',
-    react: 'React',
-    'react-dom': 'ReactDOM',
-    moment: 'moment',
-    antd: 'antd',
-  },
+  // externals: {
+  //   '@formily/reactive': 'Formily.Reactive',
+  //   react: 'React',
+  //   'react-dom': 'ReactDOM',
+  //   moment: 'moment',
+  //   antd: 'antd',
+  // },
   module: {
     rules: [
       {

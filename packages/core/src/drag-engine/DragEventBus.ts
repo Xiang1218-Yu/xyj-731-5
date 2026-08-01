@@ -38,6 +38,12 @@ export class DragEventBus implements IDragEventBus {
   private handlers: Map<DragEventName, Set<DragEventHandler<DragEventName>>> =
     new Map()
 
+  /**
+   * 订阅指定事件。
+   * @param name    事件名（受映射类型约束，负载类型可端到端推导）
+   * @param handler 事件处理器
+   * @returns 取消订阅函数，调用即移除本次订阅
+   */
   on<Name extends DragEventName>(
     name: Name,
     handler: DragEventHandler<Name>
@@ -52,6 +58,12 @@ export class DragEventBus implements IDragEventBus {
     return () => this.off(name, handler)
   }
 
+  /**
+   * 取消订阅指定事件的某个处理器。
+   * 与 on 返回的取消函数等价，提供以支持命令式写法；组内清空后回收该事件槽位。
+   * @param name    事件名
+   * @param handler 之前注册的同一处理器引用
+   */
   off<Name extends DragEventName>(
     name: Name,
     handler: DragEventHandler<Name>
@@ -64,6 +76,12 @@ export class DragEventBus implements IDragEventBus {
     }
   }
 
+  /**
+   * 广播事件给所有订阅者。
+   * 遍历快照以容忍回调中增删订阅；每个回调独立 try/catch 做异常隔离。
+   * @param name    事件名
+   * @param payload 事件负载（类型由映射表约束）
+   */
   emit<Name extends DragEventName>(
     name: Name,
     payload: IDragEventPayloadMap[Name]
@@ -86,6 +104,7 @@ export class DragEventBus implements IDragEventBus {
     }
   }
 
+  /** 清空所有事件的全部订阅（DragEngine detach/unmount 时调用） */
   clear(): void {
     this.handlers.clear()
   }
