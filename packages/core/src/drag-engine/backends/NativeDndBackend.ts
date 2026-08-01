@@ -23,6 +23,19 @@ export class NativeDndBackend extends AbstractDragBackend {
   /** 是否处于拖拽中 */
   private dragging = false
 
+  /**
+   * 本次拖拽是否已落点。
+   * 原生事件时序固定为 drop 先于 dragend；用该标志实现 drop 与 dragend 的互斥：
+   * 已 drop 则 dragend 不再重复派发取消，未 drop 则 dragend 视为取消。
+   */
+  private dropped = false
+
+  /**
+   * 1x1 透明图片，作为原生拖影占位。
+   * 惰性创建并复用，避免每次 dragstart 都重新构造。
+   */
+  private transparentImage: HTMLImageElement | null = null
+
   attach(container: EventTarget, host: IDragBackendHost): void {
     this.host = host
     container.addEventListener('dragstart', this.onDragStart as EventListener)
@@ -40,7 +53,22 @@ export class NativeDndBackend extends AbstractDragBackend {
     container.removeEventListener('drop', this.onDrop as EventListener)
     container.removeEventListener('dragend', this.onDragEnd as EventListener)
     this.dragging = false
+    this.dropped = false
+    this.transparentImage = null
     this.host = null
+  }
+
+  /** 惰性获取 1x1 透明拖影图片 */
+  private getTransparentImage(): HTMLImageElement | null {
+    if (typeof document === 'undefined') return null
+    if (!this.transparentImage) {
+      const image = new Image()
+      // 1x1 透明 GIF，base64 内联，避免额外网络请求
+      image.src =
+        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+      this.transparentImage = image
+    }
+    return this.transparentImage
   }
 
   /** 从原生 DragEvent 构造标准信号 */
@@ -64,9 +92,14 @@ export class NativeDndBackend extends AbstractDragBackend {
   private onDragStart = (event: DragEvent): void => {
     if (!this.host) return
     this.dragging = true
-    // 使用透明拖影，禁用浏览器默认拖影，视觉预览交由虚拟 DOM 层
+    this.dropped = false
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
+      // 设置透明拖影，彻底隐藏浏览器默认拖影，避免与虚拟预览层重叠
+      const transparent = this.getTransparentImage()
+      if (transparent && event.dataTransfer.setDragImage) {
+        event.dataTransfer.setDragImage(transparent, 0, 0)
+      }
     }
     const signal = this.buildSignal(event)
     if (signal) this.host.dispatchStart(signal)
@@ -86,14 +119,23 @@ export class NativeDndBackend extends AbstractDragBackend {
   private onDrop = (event: DragEvent): void => {
     if (!this.dragging || !this.host) return
     event.preventDefault()
+    // 先标记已落点，再派发；随后到来的 dragend 据此不再派发取消
+    this.dropped = true
     const signal = this.buildSignal(event)
     if (signal) this.host.dispatchDrop(signal)
     this.dragging = false
   }
 
   private onDragEnd = (event: DragEvent): void => {
-    if (!this.dragging || !this.host) return
-    // 若未经过 drop（如拖到无效区域松开），视为取消
+    if (!this.host) return
+    // drop 与 dragend 互斥：已落点则本次拖拽已在 drop 中收尾，直接复位
+    if (this.dropped) {
+      this.dropped = false
+      this.dragging = false
+      return
+    }
+    if (!this.dragging) return
+    // 未经过 drop（如拖到无效区域松开），视为取消
     const signal = this.buildSignal(event)
     if (signal) this.host.dispatchCancel(signal)
     this.dragging = false

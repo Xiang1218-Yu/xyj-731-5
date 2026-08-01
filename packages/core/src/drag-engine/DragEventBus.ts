@@ -73,7 +73,16 @@ export class DragEventBus implements IDragEventBus {
     // 复制一份快照，避免处理器在回调中增删订阅导致遍历异常
     const snapshot = Array.from(group)
     for (const handler of snapshot) {
-      ;(handler as DragEventHandler<Name>)(payload)
+      // 异常隔离：单个订阅者抛错不应中断其余订阅者，也不应打断拖拽状态机。
+      // 捕获后打印，保证事件广播的“至少送达其余订阅者”语义。
+      try {
+        ;(handler as DragEventHandler<Name>)(payload)
+      } catch (error) {
+        console.error(
+          `[DragEventBus] handler for "${name}" threw an error:`,
+          error
+        )
+      }
     }
   }
 
