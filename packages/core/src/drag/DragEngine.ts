@@ -317,7 +317,9 @@ export class DragEngine {
   ): void {
     if (this.engine.cursor.type !== CursorType.Normal) return
 
-    const target = originalEvent.target as HTMLElement
+    // 使用 mousedown 时的目标元素查找拖拽源，而非 mousemove 的当前目标
+    // 因为拖拽阈值触发时鼠标可能已移出源元素，导致找不到 source/node ID
+    const target = startEventData.target as HTMLElement | null
 
     // 查找拖拽相关元素
     const el = target?.closest?.(
