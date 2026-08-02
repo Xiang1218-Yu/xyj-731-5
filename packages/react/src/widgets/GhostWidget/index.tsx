@@ -13,6 +13,11 @@ export const GhostWidget = observer(() => {
   const prefix = usePrefix('ghost')
   const movingNodes = designer.findMovingNodes()
   const firstNode = movingNodes[0]
+
+  // 当新 DragEngine 启用了虚拟DOM预览时，不再渲染旧的 GhostWidget，
+  // 避免两套预览同时显示造成冲突
+  const useNewPreview = designer.dragEngine?.previewEnabled ?? false
+
   useEffect(
     () =>
       autorun(() => {
@@ -37,6 +42,7 @@ export const GhostWidget = observer(() => {
     )
   }
   if (!firstNode) return null
+  if (useNewPreview) return null
   return cursor.status === CursorStatus.Dragging ? (
     <div ref={ref} className={prefix}>
       {renderNodes()}

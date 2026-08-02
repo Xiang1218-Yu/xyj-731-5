@@ -10,6 +10,7 @@ import {
   Workspace,
   TreeNode,
 } from './models'
+import type { DragEngineOptions } from './drag'
 
 export type IEngineProps<T = Event> = IEventProps<T> & {
   shortcuts?: Shortcut[]
@@ -27,6 +28,12 @@ export type IEngineProps<T = Event> = IEventProps<T> & {
   defaultComponentTree?: ITreeNode //默认组件树
   defaultScreenType?: ScreenType
   rootComponentName?: string
+  /**
+   * 拖拽引擎配置
+   * 设为 false 可禁用新的 DragEngine（使用原有的 DragDropDriver）
+   * 传入对象则启用并配置新拖拽系统
+   */
+  dragEngine?: DragEngineOptions | false
 }
 
 export type IEngineContext = {
