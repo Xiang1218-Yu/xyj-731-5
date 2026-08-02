@@ -6,11 +6,19 @@
  * 2. 使用setPointerCapture实现精确的拖拽捕获，避免HTML5 DnD的不一致问题
  * 3. 作为Html5DragBackend的现代替代方案，可通过配置切换
  * 4. 同样只负责事件捕获，业务逻辑由DragEngine处理
+ *
+ * 多容器支持：
+ * - pointerdown 在每个容器上独立绑定
+ * - 拖拽开始后，在所有容器上绑定 pointermove/pointerup
  */
 
 import { Point } from '@designable/shared'
 import { DragBackendType, DragSourceType } from '../types'
-import type { DragBackendOptions, IDragEventBus } from '../types'
+import type {
+  DragBackendOptions,
+  DragContainer,
+  IDragEventBus,
+} from '../types'
 import { AbstractDragBackend } from './AbstractDragBackend'
 
 /**
@@ -31,33 +39,26 @@ interface PointerDragStartState {
 
 /**
  * Pointer Events拖拽后端
- *
- * 优势：
- * - 统一处理鼠标和触摸输入
- * - setPointerCapture提供可靠的事件捕获
- * - 不依赖浏览器原生DnD，行为一致
- * - 支持多点触控（虽然拖拽通常只需要一个触点）
  */
 export class PointerDragBackend extends AbstractDragBackend {
   private startState: PointerDragStartState | null = null
-  private dragging = false
+
   private lastMoveX = 0
   private lastMoveY = 0
+
   private pointerCaptureTarget: HTMLElement | null = null
 
-  private boundPointerDown: (e: PointerEvent) => void
-  private boundPointerMove: (e: PointerEvent) => void
-  private boundPointerUp: (e: PointerEvent) => void
-  private boundPointerCancel: (e: PointerEvent) => void
-  private boundContextMenu: (e: MouseEvent) => void
+  private readonly handlePointerDown = (e: PointerEvent) => this.onPointerDown(e)
+  private readonly handlePointerMove = (e: PointerEvent) => this.onPointerMove(e)
+  private readonly handlePointerUp = (e: PointerEvent) => this.onPointerUp(e)
+  private readonly handlePointerCancel = (e: PointerEvent) =>
+    this.onPointerCancel(e)
+  private readonly handleContextMenu = (e: MouseEvent) => {
+    if (this.dragging) e.preventDefault()
+  }
 
   constructor(eventBus: IDragEventBus, options?: DragBackendOptions) {
     super(eventBus, options)
-    this.boundPointerDown = this.onPointerDown.bind(this)
-    this.boundPointerMove = this.onPointerMove.bind(this)
-    this.boundPointerUp = this.onPointerUp.bind(this)
-    this.boundPointerCancel = this.onPointerCancel.bind(this)
-    this.boundContextMenu = this.onContextMenu.bind(this)
   }
 
   get type(): DragBackendType {
@@ -71,28 +72,57 @@ export class PointerDragBackend extends AbstractDragBackend {
     return typeof window !== 'undefined' && 'PointerEvent' in window
   }
 
-  activate(container: HTMLElement | Document): void {
-    if (this.active) return
-    this.container = container
-    this.active = true
-    container.addEventListener('pointerdown', this.boundPointerDown, true)
+  protected addStartListener(container: DragContainer): void {
+    this.addListener(container, 'pointerdown', this.handlePointerDown, true)
   }
 
-  deactivate(): void {
-    if (!this.active || !this.container) return
-    this.removeListeners()
-    this.releasePointerCapture()
-    this.container.removeEventListener(
-      'pointerdown',
-      this.boundPointerDown,
-      true
-    )
-    this.cleanup()
+  protected removeStartListener(container: DragContainer): void {
+    this.removeListener(container, 'pointerdown', this.handlePointerDown, true)
   }
 
-  /**
-   * 指针按下
-   */
+  protected addDragListeners(): void {
+    this.forEachContainer((container) => {
+      this.addListener(container, 'pointermove', this.handlePointerMove, true)
+      this.addListener(container, 'pointerup', this.handlePointerUp, true)
+      this.addListener(
+        container,
+        'pointercancel',
+        this.handlePointerCancel,
+        true
+      )
+      this.addListener(
+        container,
+        'contextmenu',
+        this.handleContextMenu,
+        true
+      )
+    })
+  }
+
+  protected removeDragListeners(): void {
+    this.forEachContainer((container) => {
+      this.removeListener(
+        container,
+        'pointermove',
+        this.handlePointerMove,
+        true
+      )
+      this.removeListener(container, 'pointerup', this.handlePointerUp, true)
+      this.removeListener(
+        container,
+        'pointercancel',
+        this.handlePointerCancel,
+        true
+      )
+      this.removeListener(
+        container,
+        'contextmenu',
+        this.handleContextMenu,
+        true
+      )
+    })
+  }
+
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0 || e.ctrlKey || e.metaKey) return
     if (this.isEditableTarget(e.target)) return
@@ -116,14 +146,9 @@ export class PointerDragBackend extends AbstractDragBackend {
     this.lastMoveX = e.clientX
     this.lastMoveY = e.clientY
 
-    document.addEventListener('pointermove', this.boundPointerMove, true)
-    document.addEventListener('pointerup', this.boundPointerUp, true)
-    document.addEventListener('pointercancel', this.boundPointerCancel, true)
+    this.addDragListeners()
   }
 
-  /**
-   * 指针移动
-   */
   private onPointerMove(e: PointerEvent): void {
     if (!this.startState || e.pointerId !== this.startState.pointerId) return
 
@@ -148,9 +173,6 @@ export class PointerDragBackend extends AbstractDragBackend {
     }
   }
 
-  /**
-   * 指针抬起
-   */
   private onPointerUp(e: PointerEvent): void {
     if (!this.startState || e.pointerId !== this.startState.pointerId) return
 
@@ -160,9 +182,6 @@ export class PointerDragBackend extends AbstractDragBackend {
     this.reset()
   }
 
-  /**
-   * 指针取消（如系统中断）
-   */
   private onPointerCancel(e: PointerEvent): void {
     if (!this.startState || e.pointerId !== this.startState.pointerId) return
     if (this.dragging) {
@@ -171,22 +190,13 @@ export class PointerDragBackend extends AbstractDragBackend {
     this.reset()
   }
 
-  private onContextMenu(e: MouseEvent): void {
-    if (this.dragging) {
-      e.preventDefault()
-    }
-  }
-
   /**
    * 开始拖拽
-   * 使用setPointerCapture捕获指针，确保拖拽过程中持续接收事件
    */
   private startDragging(e: PointerEvent): void {
     if (!this.startState || this.dragging) return
-
     this.dragging = true
 
-    // 设置指针捕获
     const target = e.target as HTMLElement
     if (target && target.setPointerCapture) {
       try {
@@ -196,8 +206,6 @@ export class PointerDragBackend extends AbstractDragBackend {
         // setPointerCapture可能在某些元素上失败，忽略错误
       }
     }
-
-    document.addEventListener('contextmenu', this.boundContextMenu, true)
 
     const point = this.getTopLevelPoint(e)
     this.eventBus.emit('drag:prepare', {
@@ -236,9 +244,6 @@ export class PointerDragBackend extends AbstractDragBackend {
     })
   }
 
-  /**
-   * 获取顶层窗口坐标（处理iframe）
-   */
   private getTopLevelPoint(e: PointerEvent): Point {
     const view = e.view || window
     const frameElement = view.frameElement as HTMLElement | null
@@ -268,16 +273,9 @@ export class PointerDragBackend extends AbstractDragBackend {
     }
   }
 
-  private removeListeners(): void {
-    document.removeEventListener('pointermove', this.boundPointerMove, true)
-    document.removeEventListener('pointerup', this.boundPointerUp, true)
-    document.removeEventListener('pointercancel', this.boundPointerCancel, true)
-    document.removeEventListener('contextmenu', this.boundContextMenu, true)
-  }
-
   private reset(): void {
     this.releasePointerCapture()
-    this.removeListeners()
+    this.removeDragListeners()
     this.startState = null
     this.dragging = false
     this.lastMoveX = 0

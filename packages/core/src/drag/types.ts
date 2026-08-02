@@ -193,16 +193,25 @@ export interface DragBackendOptions {
 }
 
 /**
+ * 可绑定事件的容器类型（顶层 Window、Document、HTMLElement、iframe Window）
+ */
+export type DragContainer = HTMLElement | Document | Window
+
+/**
  * 拖拽后端接口
  * 策略模式：不同的拖拽后端（HTML5、Pointer、Touch）实现此接口
+ *
+ * 多容器设计：
+ * 设计器画布可能运行在 iframe（沙箱模式）中，后端需要支持
+ * 在多个容器（顶层 document + 各 iframe contentWindow）上监听事件
  */
 export interface IDragBackend {
   /** 后端类型标识 */
   readonly type: DragBackendType
-  /** 初始化后端，绑定事件监听 */
-  activate(container: HTMLElement | Document): void
-  /** 销毁后端，移除事件监听 */
-  deactivate(): void
+  /** 在指定容器上绑定拖拽起始事件，可多次调用添加多个容器 */
+  attach(container: DragContainer): void
+  /** 移除指定容器的事件监听；不传则移除所有容器 */
+  detach(container?: DragContainer): void
   /** 设置拖拽阈值 */
   setThreshold(distance: number, delay: number): void
   /** 判断当前事件是否来自拖拽手柄 */

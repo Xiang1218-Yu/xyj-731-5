@@ -153,14 +153,28 @@ export class DragEngine {
 
   /**
    * 挂载拖拽引擎
-   * 在指定容器上激活后端事件监听
+   * 在顶层容器（window/document）上激活后端事件监听
    */
-  mount(container?: HTMLElement | Document): void {
+  mount(container?: HTMLElement | Document | Window): void {
     if (this.mounted) return
-    const target = container || document
-    this.backend.activate(target)
+    this.backend.attach(container || document)
     this.setupEngineListeners()
     this.mounted = true
+  }
+
+  /**
+   * 当引擎为新容器（如 iframe）绑定事件时调用
+   * 让拖拽后端也在新容器上监听 mousedown，支持跨 iframe 拖拽
+   */
+  attachContainer(container: HTMLElement | Document | Window): void {
+    this.backend.attach(container)
+  }
+
+  /**
+   * 当引擎解绑容器事件时调用
+   */
+  detachContainer(container: HTMLElement | Document | Window): void {
+    this.backend.detach(container)
   }
 
   /**
@@ -169,7 +183,7 @@ export class DragEngine {
    */
   unmount(): void {
     if (!this.mounted) return
-    this.backend.deactivate()
+    this.backend.detach()
     this.cleanupEngineListeners()
     this.unsubscribers.forEach((unsub) => unsub())
     this.unsubscribers = []
@@ -185,11 +199,11 @@ export class DragEngine {
    */
   switchBackend(backend: DragBackendType | IDragBackend): void {
     if (this.mounted) {
-      this.backend.deactivate()
+      this.backend.detach()
     }
     this.backend = this.createBackend(backend)
     if (this.mounted) {
-      this.backend.activate(document)
+      this.backend.attach(document)
     }
   }
 

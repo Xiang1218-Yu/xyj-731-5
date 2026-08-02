@@ -1,24 +1,30 @@
 /**
- * @file 拖拽后端接口定义
+ * @file 拖拽后端抽象基类
  *
  * 重构思路：
  * 1. 策略模式核心：定义统一的拖拽后端接口 IDragBackend
- * 2. 不同的后端实现（Html5DragBackend、PointerDragBackend、TouchDragBackend）
+ * 2. 不同的后端实现（Html5DragBackend、PointerDragBackend）
  *    只需实现此接口，DragEngine 无需关心底层事件来源
  * 3. 后端只负责事件捕获和转换，不包含业务逻辑
  * 4. 后端将原始DOM事件转换为统一的拖拽事件，通过事件总线上报
+ *
+ * 多容器支持：
+ * - 设计器画布可能运行在 iframe（沙箱模式）中，事件需要跨容器监听
+ * - attach/detach 支持多次调用，维护容器集合
+ * - 拖拽开始时，在所有容器上绑定 move/up 事件（等价于旧版 batchAddEventListener）
  */
 
 import type {
   DragBackendOptions,
   DragBackendType,
+  DragContainer,
   IDragEventBus,
 } from '../types'
 
 /**
  * 拖拽后端抽象基类
  *
- * 提供通用的工具方法和默认配置，具体后端继承此类
+ * 提供通用的工具方法、多容器管理和默认配置，具体后端继承此类
  */
 export abstract class AbstractDragBackend {
   /** 事件总线 */
@@ -27,14 +33,14 @@ export abstract class AbstractDragBackend {
   /** 后端配置 */
   protected options: Required<DragBackendOptions>
 
-  /** 事件容器 */
-  protected container: HTMLElement | Document | null = null
-
-  /** 是否已激活 */
-  protected active: boolean = false
+  /** 已激活的容器集合（支持顶层 document + 多个 iframe） */
+  protected containers: Set<DragContainer> = new Set()
 
   /** DOM属性名配置 */
   protected attrNames: NonNullable<DragBackendOptions['attrNames']>
+
+  /** 拖拽是否正在进行 */
+  protected dragging = false
 
   constructor(eventBus: IDragEventBus, options?: DragBackendOptions) {
     this.eventBus = eventBus
@@ -62,14 +68,55 @@ export abstract class AbstractDragBackend {
   abstract get type(): DragBackendType
 
   /**
-   * 激活后端，绑定事件监听
+   * 激活后端，在指定容器上绑定事件
+   * 支持多次调用，每个容器（document/iframe）独立绑定 mousedown
    */
-  abstract activate(container: HTMLElement | Document): void
+  attach(container: DragContainer): void {
+    if (this.containers.has(container)) return
+    this.containers.add(container)
+    this.addStartListener(container)
+  }
 
   /**
-   * 停用后端，移除事件监听
+   * 停用后端，移除指定容器上的事件
+   * 若不传 container，则移除所有容器
    */
-  abstract deactivate(): void
+  detach(container?: DragContainer): void {
+    if (container) {
+      this.removeStartListener(container)
+      this.containers.delete(container)
+    } else {
+      this.containers.forEach((c) => this.removeStartListener(c))
+      this.containers.clear()
+    }
+    if (this.containers.size === 0) {
+      this.removeDragListeners()
+      this.dragging = false
+    }
+  }
+
+  /**
+   * 在容器上绑定拖拽起始事件（mousedown/pointerdown）
+   * 由子类实现
+   */
+  protected abstract addStartListener(container: DragContainer): void
+
+  /**
+   * 从容器移除拖拽起始事件
+   * 由子类实现
+   */
+  protected abstract removeStartListener(container: DragContainer): void
+
+  /**
+   * 在所有容器上绑定拖拽中的事件（mousemove/mouseup等）
+   * 拖拽开始时调用，确保跨 iframe 也能接收事件
+   */
+  protected abstract addDragListeners(): void
+
+  /**
+   * 从所有容器移除拖拽中的事件
+   */
+  protected abstract removeDragListeners(): void
 
   /**
    * 设置拖拽阈值
@@ -87,7 +134,6 @@ export abstract class AbstractDragBackend {
     if (!element) return false
     if (element.isContentEditable) return true
     if (element.getAttribute?.('contenteditable') === 'true') return true
-    // 排除 Monaco 编辑器
     if (element.closest?.('.monaco-editor')) return true
     return false
   }
@@ -103,11 +149,6 @@ export abstract class AbstractDragBackend {
 
   /**
    * 判断目标是否可拖拽，返回拖拽信息
-   *
-   * 查找顺序：
-   * 1. 画布节点 data-designer-node-id
-   * 2. 大纲节点 data-designer-outline-node-id
-   * 3. 拖拽源 data-designer-source-id
    */
   isDraggable(target: EventTarget | null): {
     draggable: boolean
@@ -166,14 +207,39 @@ export abstract class AbstractDragBackend {
   ): boolean {
     const distance = this.calcDistance(startX, startY, currentX, currentY)
     const timeDelta = Date.now() - startTime
-    return timeDelta > this.options.dragDelay && distance > this.options.dragThreshold
+    return (
+      timeDelta > this.options.dragDelay && distance > this.options.dragThreshold
+    )
   }
 
   /**
-   * 销毁时清理
+   * 遍历所有容器执行操作
    */
-  protected cleanup(): void {
-    this.container = null
-    this.active = false
+  protected forEachContainer(fn: (container: DragContainer) => void): void {
+    this.containers.forEach(fn)
+  }
+
+  /**
+   * 安全地为容器添加事件监听
+   */
+  protected addListener(
+    container: DragContainer,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ): void {
+    container.addEventListener(type, listener, options)
+  }
+
+  /**
+   * 安全地为容器移除事件监听
+   */
+  protected removeListener(
+    container: DragContainer,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions
+  ): void {
+    container.removeEventListener(type, listener, options)
   }
 }
