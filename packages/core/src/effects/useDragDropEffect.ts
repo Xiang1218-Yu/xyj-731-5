@@ -13,8 +13,18 @@ import {
 } from '../events'
 import { Point } from '@designable/shared'
 
+/**
+ * 检查是否应使用旧版拖拽处理逻辑
+ * 当新的 DragEngine 已挂载时，由新系统负责拖拽，旧effect跳过
+ * 保持向后兼容：dragEngine 为 null 时仍走旧逻辑
+ */
+const shouldUseLegacyDrag = (engine: Engine): boolean => {
+  return !engine.dragEngine
+}
+
 export const useDragDropEffect = (engine: Engine) => {
   engine.subscribeTo(DragStartEvent, (event) => {
+    if (!shouldUseLegacyDrag(engine)) return
     if (engine.cursor.type !== CursorType.Normal) return
     const target = event.data.target as HTMLElement
     const el = target?.closest(`
@@ -61,6 +71,7 @@ export const useDragDropEffect = (engine: Engine) => {
   })
 
   engine.subscribeTo(DragMoveEvent, (event) => {
+    if (!shouldUseLegacyDrag(engine)) return
     if (engine.cursor.type !== CursorType.Normal) return
     if (engine.cursor.dragType !== CursorDragType.Move) return
     const target = event.data.target as HTMLElement
@@ -122,6 +133,7 @@ export const useDragDropEffect = (engine: Engine) => {
   })
 
   engine.subscribeTo(DragStopEvent, () => {
+    if (!shouldUseLegacyDrag(engine)) return
     if (engine.cursor.type !== CursorType.Normal) return
     if (engine.cursor.dragType !== CursorDragType.Move) return
     engine.workbench.eachWorkspace((currentWorkspace) => {

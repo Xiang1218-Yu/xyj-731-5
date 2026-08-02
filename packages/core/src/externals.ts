@@ -2,6 +2,7 @@ import { isArr } from '@designable/shared'
 import { untracked } from '@formily/reactive'
 import { DEFAULT_DRIVERS, DEFAULT_EFFECTS, DEFAULT_SHORTCUTS } from './presets'
 import { Engine, TreeNode } from './models'
+import { DragDropDriver } from './drivers'
 import {
   IEngineProps,
   IResourceCreator,
@@ -75,12 +76,19 @@ export const createDesigner = (props: IEngineProps<Engine> = {}) => {
   const drivers = props.drivers || []
   const effects = props.effects || []
   const shortcuts = props.shortcuts || []
+  const dragEngineEnabled = props.dragEngine !== false
+  const mergedDrivers = [...drivers, ...DEFAULT_DRIVERS]
+  // 当新 DragEngine 启用时，排除旧的 DragDropDriver，
+  // 避免新旧两套拖拽系统同时监听 DOM 事件导致双重预览和状态冲突
+  const effectiveDrivers = dragEngineEnabled
+    ? mergedDrivers.filter((driver) => driver !== DragDropDriver)
+    : mergedDrivers
   return untracked(
     () =>
       new Engine({
         ...props,
         effects: [...effects, ...DEFAULT_EFFECTS],
-        drivers: [...drivers, ...DEFAULT_DRIVERS],
+        drivers: effectiveDrivers,
         shortcuts: [...shortcuts, ...DEFAULT_SHORTCUTS],
       })
   )
