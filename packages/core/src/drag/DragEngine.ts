@@ -18,13 +18,9 @@
 import type { Engine } from '../models/Engine'
 import { TreeNode } from '../models/TreeNode'
 import type { Operation } from '../models/Operation'
-import {
-  CursorType,
-  CursorDragType,
-  CursorStatus,
-} from '../models/Cursor'
+import { CursorType, CursorDragType } from '../models/Cursor'
 import { ClosestPosition } from '../models/MoveHelper'
-import { Point, requestIdle } from '@designable/shared'
+import { Point } from '@designable/shared'
 import { DragEventBus } from './EventBus'
 import { DragContext } from './DragContext'
 import { DragPreviewRenderer } from './DragPreview'
@@ -33,10 +29,7 @@ import {
   Html5DragBackend,
   PointerDragBackend,
 } from './backends'
-import {
-  DragBackendType,
-  DragSourceType,
-} from './types'
+import { DragBackendType, DragSourceType } from './types'
 import type {
   DragBackendOptions,
   DragPreviewOptions,
@@ -44,7 +37,12 @@ import type {
   IDragBackend,
   IDragEventBus,
 } from './types'
-import { ViewportScrollEvent } from '../events'
+import {
+  ViewportScrollEvent,
+  DragStartEvent,
+  DragMoveEvent,
+  DragStopEvent,
+} from '../events'
 
 /**
  * DragEngine 配置选项
@@ -98,7 +96,7 @@ export class DragEngine {
   private unsubscribers: Array<() => void> = []
 
   /** 是否已挂载 */
-  private mounted: boolean = false
+  private mounted = false
 
   constructor(engine: Engine, options?: DragEngineOptions) {
     this.engine = engine
@@ -258,7 +256,8 @@ export class DragEngine {
         this.handleDragPrepare(
           payload.sourceType,
           payload.startPoint,
-          payload.originalEvent
+          payload.originalEvent,
+          payload.startEventData
         )
       })
     )
@@ -300,18 +299,25 @@ export class DragEngine {
    *
    * 重构要点：
    * 1. dragNodes 只解析一次（在 workspace 循环外），避免多 workspace 场景下被覆盖
-   * 2. 统一设置 cursor 状态（替代原 useCursorEffect 中对 DragStartEvent 的处理）
+   * 2. 派发旧版 DragStartEvent 保证 useCursorEffect/useAutoScrollEffect 等正常工作
    * 3. 遍历 workspace 时只负责将已解析的 dragNodes 同步到各 moveHelper
    */
   private handleDragPrepare(
     sourceType: DragSourceType,
     startPoint: Point,
-    originalEvent: MouseEvent | DragEvent | TouchEvent | PointerEvent
+    originalEvent: MouseEvent | DragEvent | TouchEvent | PointerEvent,
+    startEventData: {
+      clientX: number
+      clientY: number
+      pageX: number
+      pageY: number
+      target: EventTarget | null
+      view: Window | null
+    }
   ): void {
     if (this.engine.cursor.type !== CursorType.Normal) return
 
-    const event = originalEvent as MouseEvent
-    const target = event.target as HTMLElement
+    const target = originalEvent.target as HTMLElement
 
     // 查找拖拽相关元素
     const el = target?.closest?.(
@@ -362,27 +368,31 @@ export class DragEngine {
       startPoint,
     })
 
-    // 统一管理 cursor 状态（原 useCursorEffect 的 DragStartEvent 逻辑）
-    this.engine.cursor.setStatus(CursorStatus.DragStart)
-    this.engine.cursor.setDragStartPosition({
-      clientX: event.clientX,
-      clientY: event.clientY,
-      pageX: event.pageX,
-      pageY: event.pageY,
-      topClientX: startPoint.x,
-      topClientY: startPoint.y,
-      topPageX: event.pageX,
-      topPageY: event.pageY,
-    })
+    // 派发旧版 DragStartEvent，保持与现有 effects 的向后兼容：
+    // - useCursorEffect: 设置 cursor.status=DragStart、dragStartPosition
+    // - useAutoScrollEffect: 调用 takeDragStartSnapshot()（修复 dragStartSnapshot undefined）
+    this.engine.dispatch(
+      new DragStartEvent({
+        clientX: startEventData.clientX,
+        clientY: startEventData.clientY,
+        pageX: startEventData.pageX,
+        pageY: startEventData.pageY,
+        target: startEventData.target as EventTarget,
+        view: (startEventData.view || window) as Window,
+      })
+    )
+
+    // 设置拖拽类型和鼠标样式（useCursorEffect 不处理这两项）
     this.engine.cursor.setDragType(CursorDragType.Move)
     this.engine.cursor.setStyle('move')
 
-    // 通过事件总线派发 drag:start（携带正确的 originalEvent）
+    // 通过事件总线派发 drag:start（供外部新API订阅）
     this.bus.emit('drag:start', {
       dragNodes,
       sourceType,
       startPoint,
       originalEvent,
+      startEventData,
     })
 
     // 显示虚拟DOM预览
@@ -437,7 +447,7 @@ export class DragEngine {
    *
    * 重构要点：
    * 1. 各 workspace 独立查找 touchNode，不使用共享变量
-   * 2. 统一设置 cursor 状态和位置（替代原 useCursorEffect 的 DragMoveEvent 逻辑）
+   * 2. 派发旧版 DragMoveEvent 保证 useCursorEffect/useAutoScrollEffect 等正常工作
    */
   private handleDragMove(
     point: Point,
@@ -483,18 +493,18 @@ export class DragEngine {
       }
     })
 
-    // 更新 cursor 状态和位置（原 useCursorEffect 的 DragMoveEvent 逻辑）
-    this.engine.cursor.setStatus(CursorStatus.Dragging)
-    this.engine.cursor.setPosition({
-      clientX: event.clientX,
-      clientY: event.clientY,
-      pageX: event.pageX,
-      pageY: event.pageY,
-      topClientX: point.x,
-      topClientY: point.y,
-      topPageX: event.pageX,
-      topPageY: event.pageY,
-    })
+    // 派发旧版 DragMoveEvent，由 useCursorEffect 设置 cursor.status 和 position
+    // useAutoScrollEffect 也依赖此事件进行自动滚动
+    this.engine.dispatch(
+      new DragMoveEvent({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pageX: event.pageX,
+        pageY: event.pageY,
+        target: event.target as EventTarget,
+        view: (event.view || window) as Window,
+      })
+    )
 
     // 更新上下文
     this.context.updateDrag({
@@ -566,7 +576,7 @@ export class DragEngine {
    * 重构要点：
    * 1. 根据closestDirection执行节点插入
    * 2. 调用moveHelper.dragEnd清理状态
-   * 3. 统一管理 cursor 状态恢复（替代原 useCursorEffect 的 DragStopEvent 逻辑）
+   * 3. 派发旧版 DragStopEvent 保证 useCursorEffect/useFreeSelectionEffect/useAutoScrollEffect 正常工作
    * 4. 清理context和预览
    */
   private handleDragEnd(
@@ -577,7 +587,6 @@ export class DragEngine {
     if (this.engine.cursor.dragType !== CursorDragType.Move) return
 
     const event = originalEvent as MouseEvent
-    const endPoint = this.context.currentPoint
 
     this.engine.workbench.eachWorkspace((workspace) => {
       const operation: Operation = workspace.operation
@@ -589,12 +598,7 @@ export class DragEngine {
 
       if (!dragNodes.length) return
 
-      if (
-        !cancelled &&
-        dragNodes.length &&
-        closestNode &&
-        closestDirection
-      ) {
+      if (!cancelled && dragNodes.length && closestNode && closestDirection) {
         if (
           closestDirection === ClosestPosition.After ||
           closestDirection === ClosestPosition.Under
@@ -650,24 +654,20 @@ export class DragEngine {
       moveHelper.dragEnd()
     })
 
-    // 恢复 cursor 状态（原 useCursorEffect 的 DragStopEvent 逻辑）
-    this.engine.cursor.setStatus(CursorStatus.DragStop)
-    if (endPoint) {
-      this.engine.cursor.setDragEndPosition({
-        clientX: event?.clientX ?? endPoint.x,
-        clientY: event?.clientY ?? endPoint.y,
-        pageX: event?.pageX ?? endPoint.x,
-        pageY: event?.pageY ?? endPoint.y,
-        topClientX: endPoint.x,
-        topClientY: endPoint.y,
-        topPageX: event?.pageX ?? endPoint.x,
-        topPageY: event?.pageY ?? endPoint.y,
+    // 派发旧版 DragStopEvent，保持与现有 effects 的向后兼容：
+    // - useCursorEffect: 设置 cursor.status=DragStop→Normal、dragEndPosition、清除 dragStartPosition
+    // - useFreeSelectionEffect: 执行框选逻辑（依赖订阅顺序在 useCursorEffect 之前执行）
+    // - useAutoScrollEffect: 停止自动滚动
+    this.engine.dispatch(
+      new DragStopEvent({
+        clientX: event?.clientX ?? 0,
+        clientY: event?.clientY ?? 0,
+        pageX: event?.pageX ?? 0,
+        pageY: event?.pageY ?? 0,
+        target: (event?.target as EventTarget) || document,
+        view: (event?.view || window) as Window,
       })
-    }
-    this.engine.cursor.setDragStartPosition(null)
-    requestIdle(() => {
-      this.engine.cursor.setStatus(CursorStatus.Normal)
-    })
+    )
 
     // 清理上下文和预览
     this.context.endDrag()
@@ -707,14 +707,10 @@ export class DragEngine {
   /**
    * 创建默认预览虚拟DOM
    */
-  private createDefaultPreviewVNode(
-    nodes: TreeNode[]
-  ): DragPreviewVNode {
+  private createDefaultPreviewVNode(nodes: TreeNode[]): DragPreviewVNode {
     const count = nodes.length
     const label =
-      count === 1
-        ? nodes[0]?.componentName || '组件'
-        : `${count} 个组件`
+      count === 1 ? nodes[0]?.componentName || '组件' : `${count} 个组件`
 
     return {
       type: 'div',

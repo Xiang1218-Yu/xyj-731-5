@@ -64,6 +64,18 @@ export interface DragStartPayload {
   startPoint: IPoint
   /** 原始事件对象 */
   originalEvent: MouseEvent | DragEvent | TouchEvent | PointerEvent
+  /**
+   * 原始鼠标按下事件的坐标数据
+   * 用于构造兼容旧版事件系统的 DragStartEvent
+   */
+  startEventData: {
+    clientX: number
+    clientY: number
+    pageX: number
+    pageY: number
+    target: EventTarget | null
+    view: Window | null
+  }
 }
 
 /**
@@ -196,17 +208,18 @@ export interface IDragBackend {
   /** 判断当前事件是否来自拖拽手柄 */
   isDragHandle(target: EventTarget | null): boolean
   /** 判断当前事件目标是否为可拖拽节点 */
-  isDraggable(target: EventTarget | null): { draggable: boolean; nodeId?: string; sourceId?: string }
+  isDraggable(target: EventTarget | null): {
+    draggable: boolean
+    nodeId?: string
+    sourceId?: string
+  }
 }
 
 /**
  * 拖拽后端构造函数类型
  */
 export interface DragBackendConstructor {
-  new (
-    eventBus: IDragEventBus,
-    options?: DragBackendOptions
-  ): IDragBackend
+  new (eventBus: IDragEventBus, options?: DragBackendOptions): IDragBackend
 }
 
 /**

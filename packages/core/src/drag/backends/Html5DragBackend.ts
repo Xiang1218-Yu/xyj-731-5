@@ -11,10 +11,7 @@
 
 import { Point } from '@designable/shared'
 import { DragBackendType, DragSourceType } from '../types'
-import type {
-  DragBackendOptions,
-  IDragEventBus,
-} from '../types'
+import type { DragBackendOptions, IDragEventBus } from '../types'
 import { AbstractDragBackend } from './AbstractDragBackend'
 
 /**
@@ -57,11 +54,11 @@ export class Html5DragBackend extends AbstractDragBackend {
   private startState: DragStartState | null = null
 
   /** 是否正在拖拽 */
-  private dragging: boolean = false
+  private dragging = false
 
   /** 上一次移动事件的坐标，用于过滤重复事件 */
-  private lastMoveX: number = 0
-  private lastMoveY: number = 0
+  private lastMoveX = 0
+  private lastMoveY = 0
 
   /** 绑定的事件处理函数引用（用于移除监听） */
   private boundMouseDown: (e: MouseEvent) => void
@@ -262,8 +259,8 @@ export class Html5DragBackend extends AbstractDragBackend {
 
     const point = this.getTopLevelPoint(e)
 
-    // 通过事件总线上报拖拽开始
-    // 注意：dragNodes由DragEngine在接收到事件后查询并填充
+    // 通过事件总线上报拖拽准备事件
+    // startEventData 传递原始 mousedown 坐标，用于兼容旧版事件系统
     this.eventBus.emit('drag:prepare', {
       dragNodes: [],
       sourceType: this.startState.sourceId
@@ -271,6 +268,14 @@ export class Html5DragBackend extends AbstractDragBackend {
         : DragSourceType.Node,
       startPoint: point,
       originalEvent: e,
+      startEventData: {
+        clientX: this.startState.startX,
+        clientY: this.startState.startY,
+        pageX: this.startState.startPageX,
+        pageY: this.startState.startPageY,
+        target: this.startState.target,
+        view: this.startState.view,
+      },
     })
   }
 
@@ -289,10 +294,7 @@ export class Html5DragBackend extends AbstractDragBackend {
   /**
    * 上报拖拽结束事件
    */
-  private emitDragEnd(
-    e: MouseEvent | DragEvent,
-    cancelled: boolean
-  ): void {
+  private emitDragEnd(e: MouseEvent | DragEvent, cancelled: boolean): void {
     const point = this.getTopLevelPoint(e)
     this.eventBus.emit('drag:end', {
       endPoint: point,

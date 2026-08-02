@@ -10,10 +10,7 @@
 
 import { Point } from '@designable/shared'
 import { DragBackendType, DragSourceType } from '../types'
-import type {
-  DragBackendOptions,
-  IDragEventBus,
-} from '../types'
+import type { DragBackendOptions, IDragEventBus } from '../types'
 import { AbstractDragBackend } from './AbstractDragBackend'
 
 /**
@@ -43,9 +40,9 @@ interface PointerDragStartState {
  */
 export class PointerDragBackend extends AbstractDragBackend {
   private startState: PointerDragStartState | null = null
-  private dragging: boolean = false
-  private lastMoveX: number = 0
-  private lastMoveY: number = 0
+  private dragging = false
+  private lastMoveX = 0
+  private lastMoveY = 0
   private pointerCaptureTarget: HTMLElement | null = null
 
   private boundPointerDown: (e: PointerEvent) => void
@@ -210,6 +207,14 @@ export class PointerDragBackend extends AbstractDragBackend {
         : DragSourceType.Node,
       startPoint: point,
       originalEvent: e,
+      startEventData: {
+        clientX: this.startState.startX,
+        clientY: this.startState.startY,
+        pageX: this.startState.startPageX,
+        pageY: this.startState.startPageY,
+        target: this.startState.target,
+        view: this.startState.view,
+      },
     })
   }
 
