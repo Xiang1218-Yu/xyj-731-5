@@ -1,5 +1,6 @@
 import { IEventProps, Event } from '@designable/shared'
 import { ISchema } from '@formily/json-schema'
+import type { IDragBackend } from './drag-engine/types'
 import {
   Engine,
   ITreeNode,
@@ -27,6 +28,12 @@ export type IEngineProps<T = Event> = IEventProps<T> & {
   defaultComponentTree?: ITreeNode //默认组件树
   defaultScreenType?: ScreenType
   rootComponentName?: string
+  /**
+   * 自定义拖拽后端（重构后的 DragEngine 使用）。
+   * 传入后将替换默认的 PointerDragBackend，可用于接入 HTML5 DnD、
+   * 触摸事件或测试 mock 等不同输入源。
+   */
+  dragBackend?: IDragBackend
 }
 
 export type IEngineContext = {
