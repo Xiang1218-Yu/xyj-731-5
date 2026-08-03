@@ -76,12 +76,8 @@ export class DragEngineDriver extends EventDriver<Engine> {
       })
 
     // 默认使用 Pointer 后端；业务侧可通过 engine.props.dragBackend 覆盖。
-    // 这里做一次类型收窄，避免使用 any。
-    const backendFromProps = (engineProps as unknown as {
-      dragBackend?: IDragBackend
-    }).dragBackend
     const backend: IDragBackend =
-      backendFromProps ?? new PointerDragBackend()
+      engineProps.dragBackend ?? new PointerDragBackend()
 
     this.dragEngine = new DragEngine({
       backend,

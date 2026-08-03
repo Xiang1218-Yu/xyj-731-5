@@ -14,8 +14,14 @@
  *  拖入文件、与第三方可拖拽区域互操作）的能力，但预览交给引擎的
  *  VirtualPreviewRenderer 接管，从而屏蔽浏览器差异。
  *
- *  注意：HTML5 DnD 没有真正的 pointerdown，dragstart 即视为拖拽开始，
- *        因此本后端在 dragstart 时同时触发 Down + 立即进入 Move。
+ *  注意：HTML5 DnD 没有真正的 pointerdown，dragstart 即视为拖拽开始。
+ *
+ *  事件顺序（重要）：
+ *    原生规范保证：成功放置时触发顺序为 drop -> dragend；
+ *    未成功放置（拖到无效区域 / 按 ESC）时只触发 dragend。
+ *    为了避免 drop 与 dragend 重复调用 host.onBackendPointerUp 导致
+ *    会话被结束两次，本实现统一在 dragend 中上报 Up；
+ *    drop 仅做 preventDefault 并记录「已放置」标记。
  * ============================================================================
  */
 
@@ -37,6 +43,11 @@ export class Html5DragBackend implements IDragBackend {
   private container: HTMLElement | Document | null = null
   private host: IDragBackendHost | null = null
   private dragging = false
+  /**
+   * 标记本次拖拽是否触发了原生 drop。
+   * 仅用于后端内部状态判断，引擎是否真正放置由 session.target 决定。
+   */
+  private dropped = false
 
   /**
    * 用于制造一个透明的拖拽图像，以屏蔽浏览器原生预览，
@@ -58,6 +69,7 @@ export class Html5DragBackend implements IDragBackend {
 
   private onDragStart = (event: DragEvent): void => {
     this.dragging = true
+    this.dropped = false
     const pointer = normalizePointerEvent(event as NativePointerLike)
     this.host?.onBackendPointerDown(pointer)
 
@@ -90,22 +102,30 @@ export class Html5DragBackend implements IDragBackend {
   }
 
   private onDrop = (event: DragEvent): void => {
+    // 这里不能调用 host.onBackendPointerUp，否则会与紧随其后的 dragend
+    // 造成重复结束会话。仅阻止默认行为并记录已 drop 即可。
     event.preventDefault()
-    this.host?.onBackendPointerUp(
-      normalizePointerEvent(event as NativePointerLike)
-    )
+    this.dropped = true
   }
 
   private onDragEnd = (event: DragEvent): void => {
     if (!this.dragging) return
     this.dragging = false
-    // 若未触发 drop（拖到无效区域），dragend 仍需结束会话。
-    this.host?.onBackendPointerUp(
-      normalizePointerEvent(event as NativePointerLike)
-    )
+    const wasDropped = this.dropped
+    this.dropped = false
+
+    // 统一在 dragend 中上报一次 Up。
+    // 无论是否成功 drop（drop 事件可能不触发），dragend 都会触发，
+    // 因此这里是结束会话最可靠的时机。
+    const pointer = normalizePointerEvent(event as NativePointerLike)
+    this.host?.onBackendPointerUp(pointer)
+
     window.removeEventListener(DRAG_OVER, this.onDragOver as EventListener)
     window.removeEventListener(DROP, this.onDrop as EventListener)
     window.removeEventListener(DRAG_END, this.onDragEnd as EventListener)
+
+    // 标记为未使用，保留 wasDropped 以便未来扩展（例如区分 dropEffect）。
+    void wasDropped
   }
 
   isSupported(): boolean {
@@ -142,5 +162,6 @@ export class Html5DragBackend implements IDragBackend {
     this.container = null
     this.host = null
     this.dragging = false
+    this.dropped = false
   }
 }

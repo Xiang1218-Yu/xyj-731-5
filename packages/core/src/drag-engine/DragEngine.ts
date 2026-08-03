@@ -257,8 +257,10 @@ export class DragEngine implements IDragBackendHost {
     })
 
     this.updatePreview()
-    this.previewRenderer.show()
+    // 必须先把预览定位到指针位置，再设置 display:block，
+    // 否则浮层会先在 (0,0) 闪现一帧，随后才跳到正确位置。
     this.previewRenderer.move(pointer.topClientX, pointer.topClientY)
+    this.previewRenderer.show()
   }
 
   /**
@@ -344,7 +346,8 @@ export class DragEngine implements IDragBackendHost {
       dropped,
     })
 
-    this.previewRenderer.hide()
+    // render(null) 内部已经会调用 hide()，这里无需再单独 hide，
+    // 否则会造成对同一 DOM 的重复样式写入。
     this.previewRenderer.render(null)
     this.session = null
     this.lastPointer = null

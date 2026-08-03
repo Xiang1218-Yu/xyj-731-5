@@ -273,8 +273,15 @@ export type DragVNodeAttr =
   | Record<string, string | number | boolean | null | undefined>
   | EventListenerOrEventListenerObject
 
-/** 虚拟节点的样式对象 */
-export type DragVNodeStyle = Partial<CSSStyleDeclaration>
+/**
+ * 虚拟节点的样式对象。
+ *
+ * 这里刻意不使用 Partial<CSSStyleDeclaration>，原因：
+ *   1. 其属性值类型为 string | null，与业务侧书写 number（如 zIndex: 99999）冲突；
+ *   2. 经 setProperty 写入时需要把小驼峰转为短横线，直接做索引赋值类型不安全。
+ * 因此定义为「CSS 属性名 -> 字符串/数值」的开放映射，由渲染器统一、类型安全地写入。
+ */
+export type DragVNodeStyle = Record<string, string | number | null | undefined>
 
 /**
  * 虚拟 DOM 节点。

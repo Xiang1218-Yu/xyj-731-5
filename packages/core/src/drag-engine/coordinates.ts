@@ -71,14 +71,19 @@ export function normalizePointerEvent(
     // offsetWidth 可能在某些隐藏 frame 上为 0，这里做防御。
     const offsetWidth = frameElement.offsetWidth || frameRect.width || 1
     const scale = frameRect.width / offsetWidth
+    // 顶层视口坐标：子窗口 client 坐标 × 缩放 + iframe 在顶层视口中的偏移。
     base.topClientX = nativeEvent.clientX * scale + frameRect.x
     base.topClientY = nativeEvent.clientY * scale + frameRect.y
-    base.topPageX = nativeEvent.pageX + frameRect.x - (eventView.scrollX ?? 0)
-    base.topPageY = nativeEvent.pageY + frameRect.y - (eventView.scrollY ?? 0)
+    // 顶层页面坐标：子窗口 page 坐标已包含子窗口自身滚动，只需叠加
+    // iframe 在顶层视口中的偏移即可（不要再减去子窗口 scrollX/Y）。
+    base.topPageX = nativeEvent.pageX + frameRect.x
+    base.topPageY = nativeEvent.pageY + frameRect.y
 
     // 命中目标提升到顶层文档，保证跨 frame 拖拽时目标解析准确。
+    // elementFromPoint 接收「视口坐标」，因此必须使用 topClientX/Y，
+    // 不能传入 topPageX（页面坐标会随顶层滚动而错位）。
     const topElement = document.elementFromPoint(
-      base.topPageX,
+      base.topClientX,
       base.topClientY
     )
     if (topElement && topElement !== frameElement) {

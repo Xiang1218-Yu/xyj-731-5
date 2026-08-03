@@ -14,10 +14,14 @@
  *    由本渲染器创建一个 position:fixed 的浮层，使用 translate3d 跟随指针，
  *    行为在所有布局下保持一致。
  *
+ *  类型安全：
+ *    样式统一通过 applyStyle -> element.style.setProperty 写入，
+ *    不使用 any / as unknown as 等不安全断言，小驼峰属性名会被转换为
+ *    CSS 短横线形式（zIndex -> z-index），CSS 自定义属性（--foo）原样透传。
+ *
  *  性能考量：
  *    - 位置更新仅修改 transform，不触发重排；
- *    - 内容更新采用简单的「同 key 复用、结构替换」diff，
- *      预览树通常非常小（一个标题 + 图标），无需引入完整 vdom 库；
+ *    - 内容更新采用「结构替换」策略（预览树通常极小，无需完整 vdom diff）；
  *    - 对外暴露 render / move / show / hide / dispose 五个原子方法。
  * ============================================================================
  */
@@ -29,9 +33,37 @@ const ROOT_STYLE: DragVNodeStyle = {
   position: 'fixed',
   top: '0px',
   left: '0px',
-  zIndex: '99999',
+  zIndex: 99999,
   pointerEvents: 'none',
   willChange: 'transform',
+}
+
+/**
+ * 把小驼峰形式的 CSS 属性名转换为短横线形式。
+ * 以「--」开头的 CSS 自定义属性（CSS Variables）原样返回。
+ */
+function toKebabCase(propName: string): string {
+  if (propName.startsWith('--')) return propName
+  return propName.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
+}
+
+/**
+ * 类型安全地把样式对象应用到目标元素。
+ * 统一使用 setProperty，避免对 CSSStyleDeclaration 做不安全的索引赋值。
+ */
+function applyStyle(
+  style: CSSStyleDeclaration,
+  source: DragVNodeStyle
+): void {
+  Object.keys(source).forEach((propName) => {
+    const value = source[propName]
+    if (value === undefined || value === null || value === '') {
+      // 空值视为清除该样式。
+      style.removeProperty(toKebabCase(propName))
+      return
+    }
+    style.setProperty(toKebabCase(propName), String(value))
+  })
 }
 
 /** 判断属性是否为事件监听器。 */
@@ -53,15 +85,7 @@ function renderVNode(vNode: DragVNode): HTMLElement | Text {
   }
 
   if (vNode.style) {
-    Object.keys(vNode.style).forEach((prop) => {
-      const key = prop as keyof CSSStyleDeclaration
-      const value = vNode.style?.[key]
-      if (value !== undefined && value !== null) {
-        // CSSStyleDeclaration 的索引赋值在 DOM 环境中是安全的。
-        ;(element.style as unknown as Record<string, string>)[prop] =
-          String(value)
-      }
-    })
+    applyStyle(element.style, vNode.style)
   }
 
   if (vNode.attrs) {
@@ -121,18 +145,19 @@ export class VirtualPreviewRenderer {
     if (options?.className) {
       this.root.className = options.className
     }
-    Object.assign(this.root.style, ROOT_STYLE)
+    // 类型安全地写入根样式，替代旧的 Object.assign(root.style, ...)。
+    applyStyle(this.root.style, ROOT_STYLE)
 
     this.content = document.createElement('div')
     this.root.appendChild(this.content)
     // 初始隐藏。
-    this.root.style.display = 'none'
+    this.hide()
     this.container.appendChild(this.root)
   }
 
   /**
    * 渲染（或更新）预览内容。
-   * 传入 null 时清空内容。
+   * 传入 null 时清空内容并隐藏预览。
    */
   render(vNode: DragVNode | null): void {
     this.currentNode = vNode
@@ -157,7 +182,7 @@ export class VirtualPreviewRenderer {
     this.root.style.transform = `perspective(1px) translate3d(${x}px, ${y}px, 0) scale(0.8)`
   }
 
-  /** 显示预览。 */
+  /** 显示预览（仅在存在预览内容时生效）。 */
   show(): void {
     if (this.currentNode) {
       this.root.style.display = 'block'
