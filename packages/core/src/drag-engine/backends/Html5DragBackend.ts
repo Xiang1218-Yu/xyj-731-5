@@ -1,0 +1,146 @@
+/**
+ * ============================================================================
+ *  Html5DragBackend —— 基于原生 HTML5 Drag and Drop 的兼容后端
+ * ============================================================================
+ *
+ *  背景：
+ *    旧实现直接使用原生 HTML5 DnD（见历史 DragDropDriver），其问题是：
+ *      - 拖拽预览（ghost image）由浏览器控制，在复杂布局 / iframe 下不一致；
+ *      - dragover 事件触发频率与坐标在不同浏览器存在差异；
+ *      - 无法方便地自定义拖拽阈值。
+ *
+ *  本后端把这些「不一致」封装在策略内部，对上层引擎统一上报
+ *  onBackendPointerDown / Move / Up。它保留与外部 DnD（例如从操作系统
+ *  拖入文件、与第三方可拖拽区域互操作）的能力，但预览交给引擎的
+ *  VirtualPreviewRenderer 接管，从而屏蔽浏览器差异。
+ *
+ *  注意：HTML5 DnD 没有真正的 pointerdown，dragstart 即视为拖拽开始，
+ *        因此本后端在 dragstart 时同时触发 Down + 立即进入 Move。
+ * ============================================================================
+ */
+
+import type {
+  IDragBackend,
+  IDragBackendHost,
+  DragBackendType,
+} from '../types'
+import { normalizePointerEvent, type NativePointerLike } from '../coordinates'
+
+const DRAG_START = 'dragstart'
+const DRAG_OVER = 'dragover'
+const DRAG_END = 'dragend'
+const DROP = 'drop'
+
+export class Html5DragBackend implements IDragBackend {
+  readonly type: DragBackendType = 'Html5'
+
+  private container: HTMLElement | Document | null = null
+  private host: IDragBackendHost | null = null
+  private dragging = false
+
+  /**
+   * 用于制造一个透明的拖拽图像，以屏蔽浏览器原生预览，
+   * 让 VirtualPreviewRenderer 全权负责预览渲染。
+   */
+  private transparentImage: HTMLCanvasElement | null = null
+
+  private getTransparentImage(): HTMLCanvasElement {
+    if (!this.transparentImage) {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1
+      canvas.height = 1
+      const context = canvas.getContext('2d')
+      context?.clearRect(0, 0, 1, 1)
+      this.transparentImage = canvas
+    }
+    return this.transparentImage
+  }
+
+  private onDragStart = (event: DragEvent): void => {
+    this.dragging = true
+    const pointer = normalizePointerEvent(event as NativePointerLike)
+    this.host?.onBackendPointerDown(pointer)
+
+    // 屏蔽原生 ghost image，交由虚拟预览渲染器显示统一预览。
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move'
+      try {
+        event.dataTransfer.setDragImage(this.getTransparentImage(), 0, 0)
+      } catch {
+        // 部分浏览器（如旧版 Safari）对 setDragImage 支持有限，忽略。
+      }
+    }
+
+    // HTML5 DnD 不会派发 mousemove，这里在 dragover 中持续上报 move。
+    window.addEventListener(DRAG_OVER, this.onDragOver as EventListener)
+    window.addEventListener(DROP, this.onDrop as EventListener)
+    window.addEventListener(DRAG_END, this.onDragEnd as EventListener)
+  }
+
+  private onDragOver = (event: DragEvent): void => {
+    if (!this.dragging) return
+    // 必须阻止默认行为，否则浏览器不会触发 drop。
+    event.preventDefault()
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move'
+    }
+    this.host?.onBackendPointerMove(
+      normalizePointerEvent(event as NativePointerLike)
+    )
+  }
+
+  private onDrop = (event: DragEvent): void => {
+    event.preventDefault()
+    this.host?.onBackendPointerUp(
+      normalizePointerEvent(event as NativePointerLike)
+    )
+  }
+
+  private onDragEnd = (event: DragEvent): void => {
+    if (!this.dragging) return
+    this.dragging = false
+    // 若未触发 drop（拖到无效区域），dragend 仍需结束会话。
+    this.host?.onBackendPointerUp(
+      normalizePointerEvent(event as NativePointerLike)
+    )
+    window.removeEventListener(DRAG_OVER, this.onDragOver as EventListener)
+    window.removeEventListener(DROP, this.onDrop as EventListener)
+    window.removeEventListener(DRAG_END, this.onDragEnd as EventListener)
+  }
+
+  isSupported(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      'draggable' in document.createElement('div')
+    )
+  }
+
+  attach(
+    container: HTMLElement | Document,
+    host: IDragBackendHost
+  ): void {
+    this.container = container
+    this.host = host
+    container.addEventListener(
+      DRAG_START,
+      this.onDragStart as EventListener,
+      true
+    )
+  }
+
+  detach(): void {
+    if (this.container) {
+      this.container.removeEventListener(
+        DRAG_START,
+        this.onDragStart as EventListener,
+        true
+      )
+    }
+    window.removeEventListener(DRAG_OVER, this.onDragOver as EventListener)
+    window.removeEventListener(DROP, this.onDrop as EventListener)
+    window.removeEventListener(DRAG_END, this.onDragEnd as EventListener)
+    this.container = null
+    this.host = null
+    this.dragging = false
+  }
+}

@@ -1,4 +1,5 @@
 export * from './DragDropDriver'
+export * from '../drag-engine/DragEngineDriver'
 export * from './MouseClickDriver'
 export * from './MouseMoveDriver'
 export * from './ViewportResizeDriver'
