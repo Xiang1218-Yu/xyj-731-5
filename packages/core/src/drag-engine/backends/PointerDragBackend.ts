@@ -16,18 +16,15 @@
  *    Mouse Events 没有隐式捕获机制，鼠标进入 iframe 时子窗口会正常派发
  *    mousemove，这也是旧 DragDropDriver 长期验证可行的方案。
  *
- *    类名保留 PointerDragBackend 仅为公共 API 的向后兼容（作为默认后端
- *    标识），实际事件源为鼠标事件。如需 Pointer Events / 触摸 / 测试 mock，
- *    可实现 IDragBackend 自行替换。
- *
- *  多窗口 / iframe 说明：
- *    设计器画布可能运行在 iframe 中。引擎会为顶层 document 与 iframe 的
- *    document 分别创建驱动实例（见 Event.attachEvents）。本后端：
- *      - mousedown 绑定在各自的容器上（由 attach 传入）；
- *      - 拖拽开始后，在源窗口 + 所有同源 iframe 的 contentWindow 上绑定
- *        mousemove/mouseup，覆盖「画布内拖拽」与「从顶层资源面板拖入 iframe
- *        画布」两种场景；
- *      - 用静态 isAnyTracking 标记保证同一根鼠标只有一个实例处理。
+ *  多容器 / iframe 架构（关键）：
+ *    设计器会为顶层 document 与 iframe 的 contentDocument 各创建一个
+ *    DragEngineDriver 实例。为了避免「每个 driver 各自 new 一个 DragEngine
+ *    导致会话重复、drag:stop 触发多次」，DragEngine 与本后端都是单例，
+ *    attach() 会被多次调用以把多个容器纳入监听：
+ *      - mousedown 绑定在每个容器上；
+ *      - 拖拽开始后，遍历所有已挂载容器，在各自的 defaultView（window）上
+ *        绑定 mousemove/mouseup，从而同时覆盖顶层窗口与 iframe 窗口；
+ *      - 任意窗口收到 mouseup 即结束会话，保证只触发一次。
  *
  *  策略模式：本类是 IDragBackend 的一个具体策略，引擎可在运行时替换为
  *           Html5DragBackend 或自定义实现。
@@ -48,36 +45,23 @@ const MOUSE_MOVE = 'mousemove'
 const MOUSE_UP = 'mouseup'
 const CONTEXT_MENU = 'contextmenu'
 
-/** 拖拽期间扫描同源 iframe 的时间间隔（毫秒）。 */
-const WINDOW_SCAN_INTERVAL = 200
-
 export class PointerDragBackend implements IDragBackend {
   readonly type: DragBackendType = 'Pointer'
 
-  /** 事件绑定的根容器。 */
-  private container: HTMLElement | Document | null = null
+  /** 所有挂载的容器（顶层 document + 各 iframe contentDocument）。 */
+  private containers: Set<HTMLElement | Document> = new Set()
 
-  /** 引擎宿主。 */
+  /** 引擎宿主（所有容器共享同一个）。 */
   private host: IDragBackendHost | null = null
 
   /** 当前是否正在跟踪一次拖拽（按下后）。 */
   private tracking = false
 
-  /** mousedown 发生的窗口（事件源头）。 */
+  /** mousedown 发生的窗口。 */
   private sourceWindow: Window | null = null
 
   /** 当前正在监听 mousemove/mouseup 的所有窗口集合。 */
   private trackedWindows: Set<Window> = new Set()
-
-  /** 扫描同源 iframe 的定时器。 */
-  private scanTimer: ReturnType<typeof setInterval> | null = null
-
-  /**
-   * 跨实例共享的「是否有实例正在跟踪拖拽」标记。
-   * 引擎会为顶层 document 与每个 iframe document 各创建一个后端实例，
-   * 用静态标记保证同一次鼠标拖拽只有一个实例响应。
-   */
-  private static isAnyTracking = false
 
   /** 拖拽过程中临时屏蔽系统右键菜单。 */
   private onContextMenu = (event: Event): void => {
@@ -88,8 +72,8 @@ export class PointerDragBackend implements IDragBackend {
   private onMouseDown = (event: MouseEvent): void => {
     if (event.button !== 0) return
     if (event.ctrlKey || event.metaKey) return
-    // 已有其它实例在跟踪，当前实例不重复处理。
-    if (PointerDragBackend.isAnyTracking) return
+    // 已经在拖拽中，忽略其它容器的按下事件。
+    if (this.tracking) return
 
     // 跳过可编辑区域，避免干扰原地编辑。
     const target = event.target as HTMLElement | null
@@ -100,8 +84,6 @@ export class PointerDragBackend implements IDragBackend {
     }
 
     this.tracking = true
-    PointerDragBackend.isAnyTracking = true
-
     const eventWindow = this.resolveEventWindow(event)
     this.sourceWindow = eventWindow
 
@@ -109,10 +91,10 @@ export class PointerDragBackend implements IDragBackend {
       normalizePointerEvent(event as NativePointerLike)
     )
 
-    // 开始监听：源窗口 + 当前可访问的同源子窗口。
-    // 不使用 setPointerCapture / Pointer Events，避免隐式指针捕获导致
-    // 跨 iframe 时子窗口接收不到 move 事件。
-    this.startWindowTracking(eventWindow)
+    // 在所有已挂载容器对应的 window 上绑定 move/up。
+    // 顶层资源在顶层窗口按下、拖入 iframe 时，iframe 窗口也能收到 move；
+    // 画布内部按下时，源窗口本身也在集合内。
+    this.startWindowTracking()
   }
 
   /** 处理鼠标移动。 */
@@ -125,7 +107,7 @@ export class PointerDragBackend implements IDragBackend {
     )
   }
 
-  /** 处理鼠标抬起。 */
+  /** 处理鼠标抬起。任意跟踪窗口收到即结束（只触发一次）。 */
   private onMouseUp = (event: MouseEvent): void => {
     if (!this.tracking) return
 
@@ -135,7 +117,6 @@ export class PointerDragBackend implements IDragBackend {
 
     this.stopWindowTracking()
     this.tracking = false
-    PointerDragBackend.isAnyTracking = false
     this.sourceWindow = null
   }
 
@@ -144,26 +125,20 @@ export class PointerDragBackend implements IDragBackend {
   /* ---------------------------------------------------------------------- */
 
   /**
-   * 在源窗口与所有同源子窗口上绑定 mousemove/mouseup，
-   * 并启动定时器持续扫描新挂载的 iframe。
+   * 在所有已挂载容器对应的 window 上绑定 mousemove/mouseup。
+   * 对于 iframe 容器，其 defaultView 即为 iframe.contentWindow；
+   * 对于顶层 document，defaultView 为 window。
    */
-  private startWindowTracking(sourceWindow: Window): void {
+  private startWindowTracking(): void {
     this.stopWindowTracking()
-    this.trackWindow(sourceWindow)
-    this.attachChildWindows(sourceWindow)
-
-    this.scanTimer = setInterval(() => {
-      if (!this.sourceWindow) return
-      this.attachChildWindows(this.sourceWindow)
-    }, WINDOW_SCAN_INTERVAL)
+    this.containers.forEach((container) => {
+      const win = this.containerToWindow(container)
+      if (win) this.trackWindow(win)
+    })
   }
 
-  /** 停止所有窗口监听并清理定时器。 */
+  /** 停止所有窗口监听。 */
   private stopWindowTracking(): void {
-    if (this.scanTimer !== null) {
-      clearInterval(this.scanTimer)
-      this.scanTimer = null
-    }
     this.trackedWindows.forEach((win) => {
       this.detachWindowListeners(win)
     })
@@ -192,37 +167,21 @@ export class PointerDragBackend implements IDragBackend {
     } as EventListenerOptions)
   }
 
-  /**
-   * 递归把源窗口下所有同源 iframe 的 contentWindow 纳入跟踪。
-   * 跨域 iframe 访问 contentWindow 会抛异常，这里用 try/catch 静默跳过。
-   */
-  private attachChildWindows(win: Window): void {
-    let frames: HTMLCollectionOf<HTMLIFrameElement>
-    try {
-      frames = win.document.getElementsByTagName('iframe')
-    } catch {
-      // 跨域文档不可访问，忽略。
-      return
+  /** 从容器解析其所属 window。 */
+  private containerToWindow(
+    container: HTMLElement | Document
+  ): Window | null {
+    if (container === document) {
+      return typeof window !== 'undefined' ? window : null
     }
-    for (let i = 0; i < frames.length; i++) {
-      const childWindow = frames[i].contentWindow
-      if (!childWindow) continue
-      try {
-        // 访问同源标记以探测跨域；跨域访问会抛错。
-        if (!childWindow.document) continue
-      } catch {
-        continue
-      }
-      this.trackWindow(childWindow)
-      // 递归嵌套 iframe。
-      this.attachChildWindows(childWindow)
-    }
+    const doc =
+      container.nodeType === 9
+        ? (container as Document)
+        : container.ownerDocument
+    return doc?.defaultView ?? null
   }
 
-  /**
-   * 解析鼠标事件所在的 window。
-   * MouseEvent.view 通常指向事件所在窗口，做防御性兜底。
-   */
+  /** 解析鼠标事件所在的 window。 */
   private resolveEventWindow(event: MouseEvent): Window {
     if (event.view) return event.view
     if (this.sourceWindow) return this.sourceWindow
@@ -238,7 +197,9 @@ export class PointerDragBackend implements IDragBackend {
     container: HTMLElement | Document,
     host: IDragBackendHost
   ): void {
-    this.container = container
+    if (this.containers.has(container)) return
+    this.containers.add(container)
+    // 所有容器共享同一个宿主（DragEngine 单例）。
     this.host = host
     container.addEventListener(
       MOUSE_DOWN,
@@ -247,19 +208,30 @@ export class PointerDragBackend implements IDragBackend {
     )
   }
 
-  detach(): void {
-    if (this.container) {
-      this.container.removeEventListener(
+  detach(container?: HTMLElement | Document): void {
+    if (!container) {
+      // 解绑所有容器。
+      this.containers.forEach((c) => {
+        c.removeEventListener(
+          MOUSE_DOWN,
+          this.onMouseDown as EventListener,
+          true
+        )
+      })
+      this.containers.clear()
+      this.stopWindowTracking()
+      this.host = null
+      this.tracking = false
+      this.sourceWindow = null
+      return
+    }
+    if (this.containers.has(container)) {
+      container.removeEventListener(
         MOUSE_DOWN,
         this.onMouseDown as EventListener,
         true
       )
+      this.containers.delete(container)
     }
-    this.stopWindowTracking()
-    this.container = null
-    this.host = null
-    this.tracking = false
-    PointerDragBackend.isAnyTracking = false
-    this.sourceWindow = null
   }
 }

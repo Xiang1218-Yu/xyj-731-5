@@ -4,8 +4,6 @@ import {
   isHTMLElement,
   isPointInRect,
   IPoint,
-  requestIdle,
-  cancelIdle,
   globalThisPolyfill,
   Rect,
   IRect,
@@ -237,18 +235,30 @@ export class Viewport {
 
   attachEvents() {
     const engine = this.engine
-    cancelIdle(this.attachRequest)
-    this.attachRequest = requestIdle(() => {
+    if (this.attachRequest) {
+      globalThisPolyfill.clearTimeout(this.attachRequest)
+    }
+    // 先同步尝试挂载，保证 iframe 场景下 contentDocument 一经就绪就能接收到事件；
+    // 再用 setTimeout 兜底，避免 contentWindow / document 在某些时序下尚未可用。
+    // 这里不再依赖 requestIdleCallback：它在页面持续繁忙（或部分 headless 环境）
+    // 时可能长时间不触发，导致 iframe 画布内的拖拽驱动永远无法挂载。
+    const doAttach = () => {
       if (!engine) return
       if (this.isIframe) {
         this.workspace.attachEvents(this.contentWindow, this.contentWindow)
       } else if (isHTMLElement(this.viewportElement)) {
         this.workspace.attachEvents(this.viewportElement, this.contentWindow)
       }
-    })
+    }
+    doAttach()
+    this.attachRequest = globalThisPolyfill.setTimeout(doAttach, 0) as unknown as number
   }
 
   detachEvents() {
+    if (this.attachRequest) {
+      globalThisPolyfill.clearTimeout(this.attachRequest)
+      this.attachRequest = null
+    }
     if (this.isIframe) {
       this.workspace.detachEvents(this.contentWindow)
       this.workspace.detachEvents(this.viewportElement)

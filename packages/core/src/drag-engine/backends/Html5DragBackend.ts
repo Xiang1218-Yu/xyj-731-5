@@ -40,7 +40,10 @@ const DROP = 'drop'
 export class Html5DragBackend implements IDragBackend {
   readonly type: DragBackendType = 'Html5'
 
-  private container: HTMLElement | Document | null = null
+  /** 所有挂载的容器（支持顶层 document + iframe）。 */
+  private containers: Set<HTMLElement | Document> = new Set()
+
+  /** 引擎宿主（所有容器共享同一个）。 */
   private host: IDragBackendHost | null = null
   private dragging = false
   /**
@@ -139,7 +142,8 @@ export class Html5DragBackend implements IDragBackend {
     container: HTMLElement | Document,
     host: IDragBackendHost
   ): void {
-    this.container = container
+    if (this.containers.has(container)) return
+    this.containers.add(container)
     this.host = host
     container.addEventListener(
       DRAG_START,
@@ -148,19 +152,28 @@ export class Html5DragBackend implements IDragBackend {
     )
   }
 
-  detach(): void {
-    if (this.container) {
-      this.container.removeEventListener(
+  detach(container?: HTMLElement | Document): void {
+    if (!container) {
+      this.containers.forEach((c) => {
+        c.removeEventListener(
+          DRAG_START,
+          this.onDragStart as EventListener,
+          true
+        )
+      })
+      this.containers.clear()
+    } else if (this.containers.has(container)) {
+      container.removeEventListener(
         DRAG_START,
         this.onDragStart as EventListener,
         true
       )
+      this.containers.delete(container)
     }
     window.removeEventListener(DRAG_OVER, this.onDragOver as EventListener)
     window.removeEventListener(DROP, this.onDrop as EventListener)
     window.removeEventListener(DRAG_END, this.onDragEnd as EventListener)
-    this.container = null
-    this.host = null
+    this.host = this.containers.size > 0 ? this.host : null
     this.dragging = false
     this.dropped = false
   }

@@ -363,18 +363,25 @@ export interface IDragBackendHost {
  * 拖拽后端策略接口。
  * 使用策略模式：引擎在运行时持有一个后端实例，可整体替换，
  * 从而支持 Pointer / Html5 / 触摸 / 测试 mock 等不同实现。
+ *
+ * 多容器支持：
+ *   设计器画布可能运行在 iframe 中，引擎需要同时在顶层 document 与
+ *   iframe 的 contentDocument 上监听指针按下。因此 attach / detach
+ *   设计为「可重复调用、按容器增删监听」，而非只能绑定单个容器。
  */
 export interface IDragBackend {
   /** 后端类型标识 */
   readonly type: DragBackendType
   /**
-   * 将后端绑定到给定的 DOM 容器。
+   * 把后端绑定到指定容器（可多次调用以支持顶层窗口 + iframe）。
    * @param container 事件绑定的根容器
    * @param host 引擎侧的事件接收宿主
    */
   attach(container: HTMLElement | Document, host: IDragBackendHost): void
-  /** 解绑后端，移除所有事件监听 */
-  detach(): void
+  /**
+   * 从指定容器解绑；不传 container 时解绑所有容器。
+   */
+  detach(container?: HTMLElement | Document): void
   /** 是否支持当前运行环境 */
   isSupported(): boolean
 }

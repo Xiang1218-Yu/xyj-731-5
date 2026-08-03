@@ -105,13 +105,21 @@ export class DragEngine implements IDragBackendHost {
 
   /**
    * 将引擎挂载到指定 DOM 容器。
+   * 可多次调用以支持顶层 document + 多个 iframe contentDocument。
    */
   mount(container: HTMLElement | Document = document): void {
     this.backend.attach(container, this)
   }
 
   /**
-   * 卸载引擎，释放所有事件监听与预览 DOM。
+   * 从指定容器解绑；不传 container 时解绑所有容器。
+   */
+  unmountContainer(container: HTMLElement | Document): void {
+    this.backend.detach(container)
+  }
+
+  /**
+   * 卸载引擎，释放所有容器监听与预览 DOM。
    */
   unmount(): void {
     this.cancelPending()
