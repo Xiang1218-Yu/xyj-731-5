@@ -107,15 +107,12 @@ export class PointerDragBackend implements IDragBackend {
     const eventWindow = this.resolveEventWindow(event)
     this.sourceWindow = eventWindow
 
-    // 在按下元素上尝试捕获指针（document/window 不支持时安全忽略）。
-    const downTarget = event.target as Element | null
-    if (downTarget && 'setPointerCapture' in downTarget) {
-      try {
-        downTarget.setPointerCapture(event.pointerId)
-      } catch {
-        // 忽略不支持或无效的指针捕获。
-      }
-    }
+    // 注意：这里刻意不调用 setPointerCapture。
+    // 指针捕获会把该次拖拽后续所有 pointermove/up 事件的 target 强制重定向
+    // 到被捕获的「拖拽源元素」，导致拖拽目标解析器（IDragTargetResolver）
+    // 永远拿不到指针下方真实的画布节点，表现为「拖得动但放不进画布」。
+    // 事件的可靠接收已通过在源窗口及同源 iframe 上绑定 window 级监听保证，
+    // 无需指针捕获。
 
     this.host?.onBackendPointerDown(
       normalizePointerEvent(event as NativePointerLike)
@@ -149,19 +146,6 @@ export class PointerDragBackend implements IDragBackend {
       event.pointerId !== this.activePointerId
     ) {
       return
-    }
-
-    const downTarget = event.target as Element | null
-    if (
-      downTarget &&
-      'releasePointerCapture' in downTarget &&
-      this.activePointerId !== null
-    ) {
-      try {
-        downTarget.releasePointerCapture(this.activePointerId)
-      } catch {
-        // 忽略释放失败。
-      }
     }
 
     this.host?.onBackendPointerUp(
